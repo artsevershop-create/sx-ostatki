@@ -260,7 +260,7 @@ function render(){
   var sc2=$('#view .scroll');if(sc2){sc2.scrollTop=top;sc2.scrollLeft=left}
   if(keepQ){var q=$('#f-q');if(q){q.focus();q.setSelectionRange(q.value.length,q.value.length)}}
 }
-function route(){var h=(location.hash||'').replace('#','');st.tab=({ostatki:1,zhurnal:1,komissionery:1,istochniki:1,dokumenty:1,zadachi:1})[h]?h:'ostatki';if(window.CRM_ROLE&&window.CRM_ROLE()==='manager'&&(st.tab==='komissionery'||st.tab==='dokumenty'))st.tab='ostatki';render()}
+function route(){var h=(location.hash||'').replace('#','');st.tab=({ostatki:1,zhurnal:1,komissionery:1,istochniki:1,dokumenty:1,zadachi:1})[h]?h:'ostatki';render()}
 window.addEventListener('hashchange',route);
 
 document.addEventListener('input',function(e){if(e.target.id==='f-q'){st.q=e.target.value;render()}});

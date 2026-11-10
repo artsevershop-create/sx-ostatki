@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var CFG = { url: 'https://nvywtrzrxpolyqvrntjl.supabase.co', key: 'sb_publishable_4q3Ty9pTKaQwvxRm0V2CEA_PPoOj7M8' };
-  var HIDDEN_FOR_MANAGER = ['komissionery', 'dokumenty'];
+  var HIDDEN_FOR_MANAGER = [];
   var sb = window.supabase.createClient(CFG.url, CFG.key, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'ostatki-crm-auth' } });
   var ROLE = null, EMAIL = '', resolveReady;
   var ready = new Promise(function (r) { resolveReady = r; });
