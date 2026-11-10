@@ -602,7 +602,7 @@ function renderTasks(){
     var done=t.status==='done',over=!done&&t.due&&t.due<td;
     var src=t.doc&&DOCS.filter(function(d){return d.id===t.doc})[0];
     return'<tr class="item"><td style="width:34px"><input type="checkbox" data-tdone="'+esc(t.id)+'"'+(done?' checked':'')+' aria-label="Выполнено"></td>'+
-      '<td style="'+(done?'text-decoration:line-through;color:var(--muted)':'')+'"><div>'+(t.prio==='high'?'<span class="tag bad">срочно</span> ':'')+esc(t.title)+'</div>'+(t.note?'<div class="muted" style="font-size:12.5px">'+esc(t.note)+'</div>':'')+(src?'<div><a href="#" data-opendoc="'+esc(src.id)+'" style="font-size:12.5px">Документ: '+esc(src.name)+'</a></div>':'')+'</td>'+
+      '<td style="'+(done?'text-decoration:line-through;color:var(--muted)':'')+'"><div>'+(t.prio==='high'?'<span class="tag bad">срочно</span> ':'')+esc(t.title)+' <button class="small" data-tedit="'+esc(t.id)+'" title="Изменить текст задачи" aria-label="Изменить" style="padding:0 6px">✎</button></div>'+(t.note?'<div class="muted" style="font-size:12.5px">'+esc(t.note)+'</div>':'')+(src?'<div><a href="#" data-opendoc="'+esc(src.id)+'" style="font-size:12.5px">Документ: '+esc(src.name)+'</a></div>':'')+'</td>'+
       '<td><button class="small" data-twho="'+esc(t.id)+'" title="Передать другому">'+WHO[t.who||'owner']+'</button></td>'+
       '<td><input type="date" data-tdue="'+esc(t.id)+'" value="'+esc(t.due||'')+'" style="'+(over?'border-color:var(--bad);color:var(--bad)':'')+'" aria-label="Срок"></td>'+
       '<td><button class="small danger" data-tdel="'+esc(t.id)+'">×</button></td></tr>'}).join('')||'<tr><td colspan="5" class="muted" style="padding:24px;text-align:center">Задач нет.</td></tr>';
@@ -735,6 +735,7 @@ document.addEventListener('click',function(e){
   if((b=q('[data-tfw]'))){TS.who=b.dataset.tfw;render();return}
   if((b=q('[data-tfs]'))){TS.st=b.dataset.tfs;render();return}
   if((b=q('[data-df]'))){DF=b.dataset.df;render();return}
+  if((b=q('[data-tedit]'))){var te=TASKS.filter(function(x){return x.id===b.dataset.tedit})[0];if(te){var nt=window.prompt('Текст задачи',te.title||'');if(nt===null)return;nt=nt.trim();if(!nt)return;var nn=window.prompt('Пояснение (можно оставить пустым)',te.note||'');db.collection('tasks').doc(te.id).update({title:nt.slice(0,200),note:nn===null?(te.note||''):nn.trim().slice(0,300)}).then(function(){toast('Задача изменена')},function(x){toast('Не удалось сохранить: '+(x&&x.message||x))})}return}
   if((b=q('[data-twho]'))){var tk=TASKS.filter(function(x){return x.id===b.dataset.twho})[0];if(tk)db.collection('tasks').doc(tk.id).update({who:tk.who==='owner'?'staff':'owner'});return}
   if((b=q('[data-tdel]'))){if(b.dataset.sure){db.collection('tasks').doc(b.dataset.tdel).delete();return}b.dataset.sure='1';b.textContent='ok?';setTimeout(function(){if(b){b.dataset.sure='';b.textContent='×'}},3500);return}
   if(t.id==='t-add'){var ti=$('#t-title').value.trim();if(!ti){toast('Напишите, что нужно сделать');return}
