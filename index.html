@@ -1,0 +1,849 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow">
+<script src="supabase.min.js"></script>
+<script src="crm-shim.js"></script>
+<title>Остатки СХ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&family=Roboto:wght@400;500;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+/* Раскладка: шапка с действиями и вкладками, плитки итогов, фильтры, матрица «товар × место хранения» с прилипающей шапкой, панель товара справа, окна операций */
+:root{
+  --bg:#f2f4f6; --panel:#ffffff; --ink:#17212b; --muted:#5b6a79; --line:#dbe1e7; --soft:#eaeef2;
+  --accent:#1f5f9e; --accent-ink:#ffffff; --good:#12795a; --bad:#b3382c; --warn:#8a5a00; --warn-bg:#fbf1d9; --good-bg:#e1f3ec; --bad-bg:#f8e4e1;
+  --font-body:Roboto,system-ui,"Segoe UI",Arial,sans-serif; --font-head:Oswald,"Arial Narrow",Roboto,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f151b; --panel:#17202a; --ink:#e6ebf0; --muted:#9aa8b6; --line:#2a3642; --soft:#202b36;
+  --accent:#6aa7e0; --accent-ink:#0b1722; --good:#3cc59a; --bad:#f0877b; --warn:#e0b24a; --warn-bg:#3a2f12; --good-bg:#14352b; --bad-bg:#3d1d19; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f151b; --panel:#17202a; --ink:#e6ebf0; --muted:#9aa8b6; --line:#2a3642; --soft:#202b36;
+  --accent:#6aa7e0; --accent-ink:#0b1722; --good:#3cc59a; --bad:#f0877b; --warn:#e0b24a; --warn-bg:#3a2f12; --good-bg:#14352b; --bad-bg:#3d1d19; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:14px;line-height:1.45;
+  padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+.wrap{max-width:1400px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+header{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
+h1{font-family:var(--font-head);font-weight:600;font-size:32px;letter-spacing:.02em;margin:0;text-transform:uppercase;text-wrap:balance}
+.sub{color:var(--muted);margin:4px 0 0;max-width:70ch}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+button,.btn{font:inherit;font-weight:500;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button.danger{color:var(--bad)}
+button.small{padding:3px 9px;font-size:12.5px}
+button:disabled{opacity:.55;cursor:default}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line)}
+.tabs a{padding:9px 16px;text-decoration:none;color:var(--muted);border-bottom:2px solid transparent;font-weight:500;margin-bottom:-1px}
+.tabs a.on{color:var(--ink);border-bottom-color:var(--accent)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;min-width:0}
+.tile .l{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+.tile .v{font-family:var(--font-head);font-size:26px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px;white-space:nowrap}
+.tile .n{color:var(--muted);font-size:12px}
+.tile.bad .v{color:var(--bad)} .tile.warn .v{color:var(--warn)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+select,input[type=search],input[type=number],input[type=text],input[type=datetime-local],input[type=file]{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;padding:7px 10px;min-width:0}
+input[type=search]{flex:1 1 240px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;min-width:0}
+.scroll{overflow:auto;max-height:calc(100vh - 250px);min-height:240px}
+table{border-collapse:separate;border-spacing:0;width:100%;font-variant-numeric:tabular-nums}
+th{position:sticky;top:0;z-index:2;background:var(--panel);font-size:11.5px;font-weight:500;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);text-align:left;padding:8px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+th.c,td.c{text-align:center;min-width:74px}
+td.name{position:sticky;left:0;background:var(--panel);z-index:1;min-width:280px;max-width:380px}
+th.name{left:0;z-index:3}
+td.name .code{color:var(--muted);font-size:11.5px}
+tr.grp td{background:var(--soft);font-weight:500;position:static;color:var(--muted);text-transform:uppercase;font-size:12px;letter-spacing:.04em}
+tr.item:hover td{background:var(--soft)}
+tr.item:hover td.name{background:var(--soft)}
+td.c{cursor:pointer}
+td.c .v{display:block;font-weight:700;font-size:15px}
+td.c .f{display:block;font-size:11px;white-space:nowrap}
+td.c .f.ok{color:var(--good)} td.c .f.diff{color:var(--warn);background:var(--warn-bg);border-radius:8px;padding:0 5px}
+td.c.neg .v{color:var(--bad)}
+td.c.zero .v{color:var(--muted);font-weight:400}
+td.c.na{color:var(--line);cursor:default}
+td.tot{font-weight:700;text-align:right}
+.tag{display:inline-block;font-size:11.5px;padding:1px 7px;border-radius:10px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.tag.good{background:var(--good-bg);color:var(--good);border-color:transparent}
+.tag.warn{background:var(--warn-bg);color:var(--warn);border-color:transparent}
+.tag.bad{background:var(--bad-bg);color:var(--bad);border-color:transparent}
+.empty{padding:36px 20px;text-align:center;color:var(--muted)}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;z-index:60;max-width:90vw}
+/* панель товара и окна */
+.shade{position:fixed;inset:0;background:rgba(10,18,26,.45);z-index:40}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(460px,100vw);background:var(--panel);border-left:1px solid var(--line);z-index:41;overflow:auto;padding:18px 18px 28px;padding-top:calc(18px + env(safe-area-inset-top,0px))}
+.modal{position:fixed;z-index:42;inset:0;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow:auto}
+.modal .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;width:min(860px,100%);padding:18px 20px 20px}
+.box h3,.drawer h3{font-family:var(--font-head);font-weight:500;font-size:20px;text-transform:uppercase;letter-spacing:.03em;margin:0 0 10px}
+.row2{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:10px}
+label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+label.f input,label.f select{color:var(--ink);font-size:14px}
+.lines{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.line{display:grid;grid-template-columns:1fr 90px 32px;gap:6px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:6px 0 12px}
+.kv dt{color:var(--muted)} .kv dd{margin:0}
+.mini{width:100%;border-collapse:collapse;min-width:0}
+.mini th{position:static;background:none}
+.mini td,.mini th{padding:5px 6px;text-align:left}
+.mini td.r,.mini th.r{text-align:right}
+.hist{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.hist div{border-bottom:1px solid var(--line);padding-bottom:5px}
+.muted{color:var(--muted)}
+.src{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px}
+.srccard{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.srccard h4{margin:0;font-size:15px}
+.preview{font-size:13px;color:var(--muted);margin:6px 0;min-height:18px;white-space:pre-line}
+.imp{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px}
+.imp h4{margin:0 0 6px}
+.drop{display:block;border:2px dashed var(--line);border-radius:10px;padding:22px 16px;text-align:center;background:var(--panel);cursor:pointer}
+.drop.on{border-color:var(--accent);background:var(--soft)}
+.drop input{display:block;margin:10px auto 0;max-width:100%}
+td.r,th.r{text-align:right}
+@media (max-width:640px){td.name{min-width:200px}.line{grid-template-columns:1fr 70px 32px}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Остатки СХ</h1>
+      <p class="sub">Склад МойСклад, магазин, брак и точки «Арт»: расчётный и фактический остаток по каждой позиции. Продажи с сайта, по договорам и через кассу меняют расчёт сразу.</p>
+    </div>
+    <div class="actions">
+      <button class="primary" id="b-op">+ Операция</button>
+      <button id="b-inv">Инвентаризация</button>
+      <button id="b-imp">Импорт</button>
+      <button id="b-csv">Скачать CSV</button>
+    </div>
+  </header>
+  <nav class="tabs" aria-label="Разделы"><a href="#ostatki" data-t="ostatki">Остатки</a><a href="#zhurnal" data-t="zhurnal">Журнал операций</a><a href="#komissionery" data-t="komissionery">Комиссионеры</a><a href="#dokumenty" data-t="dokumenty">Документы</a><a href="#zadachi" data-t="zadachi">Задачи</a><a href="#istochniki" data-t="istochniki">Источники данных</a></nav>
+  <div id="view"></div>
+</div>
+<div id="layer"></div>
+<div id="toast" hidden></div>
+<datalist id="items-dl"></datalist>
+
+<script>
+(function(){
+'use strict';
+var LOCS=[['skl','Основной склад'],['mag','Магазин'],['brak','Брак'],['sx','Арт СХД'],['nur','Арт НУР'],['nb','Арт Ноябрьск'],['lbt','Арт ЛБТ'],['tk','Арт Тарко-Сале']];
+var LN={};LOCS.forEach(function(l){LN[l[0]]=l[1]});
+var TYPES={sale_site:'Продажа: сайт',sale_contract:'Продажа: договор',sale_evotor:'Продажа: касса Эвотор',sale_retail:'Продажа: розница',transfer:'Передача',return:'Возврат',receipt:'Поступление',writeoff:'Списание',adjust:'Корректировка'};
+var GROUPS=[['tee','Футболки и майки'],['hood','Худи, свитшоты, олимпийки, анораки, костюмы'],['pants','Брюки и джоггеры'],['head','Головные уборы, шарфы, носки'],['bags','Рюкзаки, шопперы, пакеты, обложки'],['souv','Сувениры и канцелярия'],['kits','Конструкторы и игры'],['other','Прочее']];
+var CM={},CR=[],CP=[],POS={},DEAL={};
+var db=null,G={},C={},MV=[],META={sources:[]},ITEMS=[],IDX={},DEL={},NAMEID={};
+var st={q:'',g:'all',mode:'all',tab:'ostatki'};
+var $=function(s,r){return(r||document).querySelector(s)};
+var esc=function(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})};
+var nf=new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0});
+var money=function(n){return nf.format(Math.round(n))};
+var pad=function(n){return(n<10?'0':'')+n};
+var dmy=function(iso){if(!iso)return'—';var d=new Date(iso);return pad(d.getDate())+'.'+pad(d.getMonth()+1)+'.'+d.getFullYear()+' '+pad(d.getHours())+':'+pad(d.getMinutes())};
+var toastT;
+function toast(m){var t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(function(){t.hidden=true},3500)}
+function nk(s){return String(s||'').toLowerCase().replace(/ё/g,'е').replace(/[«»"“”„'`]/g,'').replace(/[^a-zа-я0-9]+/g,' ').trim()}
+function nowIso(){return new Date().toISOString()}
+
+/* ---------- расчёт ---------- */
+function recompute(){
+  ITEMS=[];IDX={};NAMEID={};
+  Object.keys(G).sort(function(a,b){return(G[a].order||0)-(G[b].order||0)}).forEach(function(g){
+    (G[g].items||[]).forEach(function(it){var o=Object.assign({},it,{g:g});ITEMS.push(o);IDX[o.id]=o;NAMEID[o.n]=o.id;if(o.c)NAMEID[o.c]=o.id});
+  });
+  DEL={};
+  MV.forEach(function(m){(m.lines||[]).forEach(function(l){
+    var it=IDX[l[0]];if(!it)return;
+    var thr=((G[it.g]||{}).ts||{})[l[1]]||'';
+    if(m.ts>thr){var k=l[0]+'|'+l[1];DEL[k]=(DEL[k]||0)+l[2]}
+  })});
+  var dl=$('#items-dl');if(dl){dl.innerHTML=ITEMS.map(function(i){return'<option value="'+esc(i.n)+'">'+esc(i.c||'')+'</option>'}).join('')}
+}
+function calc(it,loc){var b=it.L&&it.L[loc],d=DEL[it.id+'|'+loc];if(b===undefined&&d===undefined)return null;return(b||0)+(d||0)}
+function fact(it,loc){var x=C[it.g]&&C[it.g].c&&C[it.g].c[it.id]&&C[it.g].c[it.id][loc];return x&&x[0]!=null?x[0]:null}
+function total(it){var s=0;LOCS.forEach(function(l){var c=calc(it,l[0]);if(c!=null)s+=c});return s}
+function hasDiff(it){return LOCS.some(function(l){var f=fact(it,l[0]);return f!=null&&f!==(calc(it,l[0])||0)})}
+function hasNeg(it){return LOCS.some(function(l){var c=calc(it,l[0]);return c!=null&&c<0})}
+
+/* ---------- экран «Остатки» ---------- */
+function visible(){
+  var q=nk(st.q);
+  return ITEMS.filter(function(it){
+    if(st.g!=='all'&&it.g!==st.g)return false;
+    if(q&&nk(it.n+' '+(it.c||'')+' '+(it.a||'')+' '+(it.al||'')).indexOf(q)<0)return false;
+    if(st.mode==='diff'&&!hasDiff(it))return false;
+    if(st.mode==='neg'&&!hasNeg(it))return false;
+    if(st.mode==='stock'&&total(it)<=0)return false;
+    return true});
+}
+function cell(it,loc){
+  var c=calc(it,loc),f=fact(it,loc);
+  if(c===null&&f===null)return'<td class="c na">·</td>';
+  var cls=c!=null&&c<0?' neg':(c===0?' zero':'');
+  var h='<span class="v">'+(c==null?'—':c)+'</span>';
+  if(f!=null){var d=f-(c||0);h+='<span class="f '+(d?'diff':'ok')+'">факт '+f+(d?' ('+(d>0?'+':'')+d+')':'')+'</span>'}
+  return'<td class="c'+cls+'" data-i="'+esc(it.id)+'" data-l="'+loc+'">'+h+'</td>';
+}
+function renderStock(){
+  var list=visible();
+  var cells=0,diffs=0,negs=0,pcs=0,sum=0;
+  ITEMS.forEach(function(it){LOCS.forEach(function(l){var c=calc(it,l[0]),f=fact(it,l[0]);if(c!=null){if(c<0)negs++;if(c>0){pcs+=c;sum+=c*(it.p||0)}}if(f!=null&&f!==(c||0))diffs++}) });
+  var sk=0;ITEMS.forEach(function(it){sk+=Math.max(calc(it,'skl')||0,0)});
+  var gsel='<select id="f-g" aria-label="Группа"><option value="all">Все группы</option>'+GROUPS.filter(function(g){return G[g[0]]}).map(function(g){return'<option value="'+g[0]+'"'+(st.g===g[0]?' selected':'')+'>'+esc(g[1])+'</option>'}).join('')+'</select>';
+  var msel='<select id="f-m" aria-label="Показать">'+[['all','Все позиции'],['stock','Есть в наличии'],['diff','Только расхождения'],['neg','Только минусовые']].map(function(m){return'<option value="'+m[0]+'"'+(st.mode===m[0]?' selected':'')+'>'+m[1]+'</option>'}).join('')+'</select>';
+  var h='<section class="tiles">'+
+    tile('Позиций',nf.format(ITEMS.length),'в справочнике')+
+    tile('Штук по расчёту',nf.format(pcs),'на основном складе '+nf.format(sk)+' шт.')+
+    tile('По цене продажи',money(sum)+' ₽','только положительные остатки')+
+    tile('Расхождения',nf.format(diffs),'факт не равен расчёту',diffs?'warn':'')+
+    tile('Минус по расчёту',nf.format(negs),'продано больше, чем приходовано',negs?'bad':'')+
+    '</section>'+
+    '<div class="filters"><input type="search" id="f-q" placeholder="Поиск по названию, коду, артикулу" aria-label="Поиск" value="'+esc(st.q)+'">'+gsel+msel+'<span class="muted" id="f-n"></span></div>';
+  if(!ITEMS.length){return h+'<div class="panel"><div class="empty">В базе пока нет остатков. Нажмите «Импорт» и загрузите выгрузку МойСклад или лист с остатками.</div></div>'}
+  h+='<div class="panel"><div class="scroll"><table><thead><tr><th class="name">Наименование</th>'+LOCS.map(function(l){return'<th class="c">'+l[1]+'</th>'}).join('')+'<th class="r">Итого расч.</th></tr></thead><tbody>';
+  var cur='';
+  list.forEach(function(it){
+    if(it.g!==cur){cur=it.g;var gn=(G[cur]||{}).name||cur;h+='<tr class="grp"><td class="name" colspan="'+(LOCS.length+2)+'">'+esc(gn)+'</td></tr>'}
+    h+='<tr class="item"><td class="name"><div>'+esc(it.n)+'</div><div class="code">'+esc(it.c||'')+(it.ms?'':' · нет в МС')+'</div></td>'+LOCS.map(function(l){return cell(it,l[0])}).join('')+'<td class="tot">'+total(it)+'</td></tr>';
+  });
+  h+='</tbody></table></div></div>';
+  return h;
+}
+function tile(l,v,n,cls){return'<div class="tile '+(cls||'')+'"><div class="l">'+l+'</div><div class="v">'+v+'</div><div class="n">'+n+'</div></div>'}
+
+/* ---------- журнал ---------- */
+function renderJournal(){
+  if(!MV.length)return'<div class="panel"><div class="empty">Операций пока нет. Продажи с сайта, по договорам и через кассу появятся здесь.</div></div>';
+  var h='<div class="panel"><div class="scroll"><table><thead><tr><th>Дата</th><th>Тип</th><th>Документ</th><th>Позиции</th><th>МойСклад</th><th></th></tr></thead><tbody>';
+  MV.slice(0,400).forEach(function(m){
+    var inBase=(m.lines||[]).every(function(l){var it=IDX[l[0]];return it&&m.ts<=((G[it.g]||{}).ts||{})[l[1]]});
+    var lines=(m.lines||[]).slice(0,6).map(function(l){var it=IDX[l[0]];return esc(it?it.n:l[0])+' · '+LN[l[1]]+' · <b>'+(l[2]>0?'+':'')+l[2]+'</b>'}).join('<br>');
+    if((m.lines||[]).length>6)lines+='<br><span class="muted">и ещё '+(m.lines.length-6)+'</span>';
+    h+='<tr><td style="white-space:nowrap">'+dmy(m.ts)+'</td><td>'+esc(TYPES[m.type]||m.type)+(inBase?' <span class="tag">уже учтено в базе</span>':'')+'</td><td>'+esc(m.ref||'')+(m.note?'<div class="muted">'+esc(m.note)+'</div>':'')+'</td><td>'+lines+'</td><td style="white-space:nowrap">'+msqCell(m)+'</td><td><button class="small danger" data-del="'+esc(m.id)+'">Удалить</button></td></tr>';
+  });
+  return h+'</tbody></table></div></div>';
+}
+
+/* ---------- источники ---------- */
+function renderSources(){
+  var ts={};Object.keys(G).forEach(function(g){Object.keys(G[g].ts||{}).forEach(function(l){if(!ts[l]||G[g].ts[l]>ts[l])ts[l]=G[g].ts[l]})});
+  var bySrc={};MV.forEach(function(m){var s=m.src||'ручной ввод';bySrc[s]=(bySrc[s]||0)+1});
+  var factN=0;Object.keys(C).forEach(function(g){Object.keys((C[g]||{}).c||{}).forEach(function(i){factN+=Object.keys(C[g].c[i]).length})});
+  var S=(META&&META.src)||{};
+  var ms=S.ms||{},ev=S.evotor||{},site=S.site||{};
+  var cards=[
+    ['МойСклад','Основной склад, Арт ЛБТ (Лампа), Арт Ноябрьск (Миксер), Арт Тарко-Сале','Отчёт «Остатки по складам» из кабинета МойСклад ('+(ms.n||0)+' позиций). Магазин «Дары Ямала» в МойСклад пуст, магазин ведётся по листу Мурашова.','Загружено '+dmy(ms.ts||ts.skl)+'. Обновляется командой «обнови остатки»: Claude открывает МойСклад в вашем браузере и забирает отчёт.',ms.ts?'good':'warn'],
+    ['Лист Мурашова','Магазин, брак, Арт СХД и НУР, факт по всем точкам','Расчёт магазина и факт по точкам «Арт». Загружены 63 позиции из листа «Лист27».','Загружено '+dmy(ts.sx)+'. Полный лист: скачать как .xlsx и загрузить через «Импорт».',ts.sx?'good':'warn'],
+    ['Сайт (InSales)','Основной склад','Оплаченные заказы уменьшают склад: позиция находится по артикулу, размеру и цвету.','Заказы до №'+(site.lastOrder||'—')+', движений с сайта: '+(bySrc.insales||0)+'. Обновляется командой «обнови остатки» через API InSales.',bySrc.insales?'good':'warn'],
+    ['Касса Эвотор','Магазин (Салехард)','Чеки «Моей кассы №2» из личного кабинета Эвотор. Облачный токен не нужен: Claude читает чеки в открытом кабинете.','Последний чек: '+(ev.last||'—')+', движений кассы: '+(bySrc.evotor||0)+'. Касса с 23.06 не передаёт продажи в МойСклад, поэтому остаток магазина меняет только эта загрузка.',bySrc.evotor?'good':'warn'],
+    ['Договоры','Основной склад и передачи на точки','Продажа по договору вносится операцией «Продажа: договор», передача на комиссию операцией «Передача».','Движений по договорам: '+(MV.filter(function(m){return m.type==='sale_contract'}).length)+'.','good'],
+    ['Инвентаризация','Фактические остатки','Ввод факта по месту хранения, сравнение с расчётом, при желании принять факт как расчёт.','Введено фактов: '+factN+'.',factN?'good':'warn']
+  ];
+  return'<div class="src">'+cards.map(function(c){return'<div class="srccard"><h4>'+esc(c[0])+' <span class="tag '+c[4]+'">'+(c[4]==='good'?'подключено':'ждёт данных')+'</span></h4><div class="muted">'+esc(c[1])+'</div><div>'+esc(c[2])+'</div><div class="muted">'+esc(c[3])+'</div></div>'}).join('')+'</div>'+
+  '<div class="panel" style="margin-top:10px"><div style="padding:12px 14px"><b>Как считается остаток.</b> Расчёт = последняя выгрузка по месту хранения плюс все операции после неё. Новая выгрузка МойСклад заменяет расчёт склада, операции до неё остаются в журнале с пометкой «уже учтено в базе». Фактический остаток вводится при инвентаризации и расчёт сам не меняет.</div></div>';
+}
+
+/* ---------- основной вывод ---------- */
+function render(){
+  document.querySelectorAll('.tabs a').forEach(function(a){a.classList.toggle('on',a.dataset.t===st.tab)});
+  var keepQ=document.activeElement&&document.activeElement.id==='f-q';
+  var v=$('#view');
+  var keep={};if(st.tab==='zadachi'||st.tab==='dokumenty')document.querySelectorAll('#view [id]').forEach(function(e){if((e.tagName==='INPUT'&&e.type!=='file'&&e.type!=='checkbox')||e.tagName==='SELECT'||e.tagName==='TEXTAREA')keep[e.id]=e.value});
+  var sc=$('#view .scroll');var top=sc?sc.scrollTop:0,left=sc?sc.scrollLeft:0;
+  v.innerHTML=st.tab==='zhurnal'?renderJournal():st.tab==='komissionery'?renderComm():st.tab==='istochniki'?renderSources():st.tab==='dokumenty'?renderDocs():st.tab==='zadachi'?renderTasks():renderStock();
+  Object.keys(keep).forEach(function(id){var e=$('#'+id);if(e&&e.value!==keep[id])e.value=keep[id]});
+  var n=$('#f-n');if(n&&st.tab==='ostatki')n.textContent='Показано '+visible().length+' из '+ITEMS.length;
+  var sc2=$('#view .scroll');if(sc2){sc2.scrollTop=top;sc2.scrollLeft=left}
+  if(keepQ){var q=$('#f-q');if(q){q.focus();q.setSelectionRange(q.value.length,q.value.length)}}
+}
+function route(){var h=(location.hash||'').replace('#','');st.tab=({ostatki:1,zhurnal:1,komissionery:1,istochniki:1,dokumenty:1,zadachi:1})[h]?h:'ostatki';if(window.CRM_ROLE&&window.CRM_ROLE()==='manager'&&(st.tab==='komissionery'||st.tab==='dokumenty'))st.tab='ostatki';render()}
+window.addEventListener('hashchange',route);
+
+document.addEventListener('input',function(e){if(e.target.id==='f-q'){st.q=e.target.value;render()}});
+document.addEventListener('change',function(e){if(e.target.id==='f-g'){st.g=e.target.value;render()}if(e.target.id==='f-m'){st.mode=e.target.value;render()}});
+document.addEventListener('click',function(e){
+  var t=e.target;
+  var c=t.closest&&t.closest('td.c[data-i]');if(c&&!$('.drawer')){openItem(c.dataset.i,c.dataset.l);return}
+  var d=t.closest&&t.closest('[data-del]');
+  if(d){if(d.dataset.sure){delMove(d.dataset.del);return}d.dataset.sure='1';d.textContent='Подтвердить';setTimeout(function(){if(d){d.dataset.sure='';d.textContent='Удалить'}},4000);return}
+  if(t.id==='b-op')openOp('sale_site');
+  if(t.id==='b-inv')openInv();
+  if(t.id==='b-imp')openImp();
+  if(t.id==='b-csv')exportCsv();
+});
+
+/* ---------- запись ---------- */
+function uid(){return'u'+Date.now().toString(36)+Math.random().toString(36).slice(2,5)}
+function saveMove(m){m.id=m.id||uid();return db.collection('moves').doc(m.id).set(m)}
+function delMove(id){db.collection('moves').doc(id).delete().then(function(){toast('Операция удалена, остатки пересчитаны')},function(e){toast('Не удалось удалить: '+(e&&e.message||e))})}
+
+/* ---------- панель товара ---------- */
+function openItem(id,loc){
+  var it=IDX[id];if(!it)return;
+  closeLayer();
+  var l=$('#layer');
+  var rows=LOCS.map(function(x){var c=calc(it,x[0]),f=fact(it,x[0]);var d=(f!=null)?f-(c||0):null;
+    return'<tr'+(x[0]===loc?' style="background:var(--soft)"':'')+'><td>'+x[1]+'</td><td class="r"><b>'+(c==null?'—':c)+'</b></td><td class="r"><input type="number" data-fact="'+x[0]+'" value="'+(f==null?'':f)+'" style="width:72px" aria-label="Факт '+x[1]+'"></td><td class="r">'+(d==null?'':'<span class="tag '+(d?'warn':'good')+'">'+(d>0?'+':'')+d+'</span>')+'</td></tr>'}).join('');
+  var hist=MV.filter(function(m){return(m.lines||[]).some(function(x){return x[0]===id})}).slice(0,12).map(function(m){var q=m.lines.filter(function(x){return x[0]===id}).map(function(x){return LN[x[1]]+' '+(x[2]>0?'+':'')+x[2]}).join(', ');return'<div><b>'+dmy(m.ts)+'</b> · '+esc(TYPES[m.type]||m.type)+'<br>'+esc(m.ref||'')+' · '+q+'</div>'}).join('')||'<div class="muted">Операций по позиции нет.</div>';
+  l.innerHTML='<div class="shade" data-close></div><aside class="drawer" role="dialog" aria-label="Позиция"><div style="display:flex;justify-content:space-between;gap:10px"><h3>'+esc(it.n)+'</h3><button class="small" data-close>Закрыть</button></div>'+
+    '<dl class="kv"><dt>Код</dt><dd>'+esc(it.c||'—')+'</dd><dt>Артикул</dt><dd>'+esc(it.a||'—')+'</dd><dt>Цена</dt><dd>'+(it.p?money(it.p)+' ₽':'—')+'</dd><dt>Себестоимость МС</dt><dd>'+(it.k?money(it.k)+' ₽':'—')+'</dd>'+(it.al?'<dt>В листе Мурашова</dt><dd>'+esc(it.al)+'</dd>':'')+'</dl>'+
+    '<table class="mini"><thead><tr><th>Место</th><th class="r">Расчёт</th><th class="r">Факт</th><th class="r">Δ</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0"><button class="primary small" id="d-save">Сохранить факт</button><button class="small" data-op="sale_contract">Продажа по договору</button><button class="small" data-op="transfer">Передача</button><button class="small" data-op="receipt">Поступление</button></div>'+
+    '<h3 style="font-size:16px">История</h3><div class="hist">'+hist+'</div></aside>';
+  l.querySelectorAll('[data-close]').forEach(function(b){b.addEventListener('click',closeLayer)});
+  l.querySelectorAll('[data-op]').forEach(function(b){b.addEventListener('click',function(){var t=b.dataset.op;closeLayer();openOp(t,id)})});
+  $('#d-save').addEventListener('click',function(){
+    var ts=nowIso(),patch={},n=0;
+    l.querySelectorAll('[data-fact]').forEach(function(inp){var lc=inp.dataset.fact,old=fact(it,lc),v=inp.value===''?null:+inp.value;if(v!==old){(patch[id]=patch[id]||{})[lc]=[v,ts];n++}});
+    if(!n){toast('Ничего не изменилось');return}
+    writeCounts(it.g,patch).then(function(){toast('Факт сохранён');closeLayer()},function(e){toast('Не удалось сохранить: '+(e&&e.message||e))});
+  });
+}
+function closeLayer(){$('#layer').innerHTML=''}
+function writeCounts(g,patch){
+  var ref=db.doc('cnt/'+g);
+  return C[g]?ref.update({c:patch}):ref.set({c:patch});
+}
+
+/* ---------- операция ---------- */
+var OPFROM={sale_site:'skl',sale_contract:'skl',sale_evotor:'mag',sale_retail:'mag',transfer:'skl',writeoff:'skl'};
+var OPTO={transfer:'sx',return:'skl',receipt:'skl'};
+function locSel(id,val,none){return'<select id="'+id+'">'+(none?'<option value="">—</option>':'')+LOCS.map(function(l){return'<option value="'+l[0]+'"'+(val===l[0]?' selected':'')+'>'+l[1]+'</option>'}).join('')+'</select>'}
+function openOp(type,itemId){
+  closeLayer();
+  var l=$('#layer');
+  var d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());
+  l.innerHTML='<div class="shade" data-close></div><div class="modal"><div class="box" role="dialog" aria-label="Операция"><h3>Новая операция</h3>'+
+    '<div class="row2"><label class="f">Тип<select id="o-type">'+Object.keys(TYPES).map(function(k){return'<option value="'+k+'"'+(k===type?' selected':'')+'>'+TYPES[k]+'</option>'}).join('')+'</select></label>'+
+    '<label class="f">Дата и время<input type="datetime-local" id="o-date" value="'+d.toISOString().slice(0,16)+'"></label>'+
+    '<label class="f">Документ<input type="text" id="o-ref" placeholder="№ заказа, договора, накладной"></label></div>'+
+    '<div class="row2"><label class="f" id="w-from">Откуда'+locSel('o-from',OPFROM[type]||'skl')+'</label><label class="f" id="w-to">Куда'+locSel('o-to',OPTO[type]||'sx')+'</label><label class="f">Комментарий<input type="text" id="o-note"></label></div>'+
+    '<div class="lines" id="o-lines"></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="small" id="o-add">+ строка</button></div>'+
+    '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button data-close>Отмена</button><button class="primary" id="o-save">Записать</button></div></div></div>';
+  l.querySelectorAll('[data-close]').forEach(function(b){b.addEventListener('click',closeLayer)});
+  function addLine(id){var n=document.createElement('div');n.className='line';n.innerHTML='<input type="text" list="items-dl" placeholder="Наименование или код" aria-label="Позиция" value="'+esc(id&&IDX[id]?IDX[id].n:'')+'"><input type="number" min="1" step="1" placeholder="шт." aria-label="Количество" value="1"><button class="small" aria-label="Убрать строку">×</button>';n.querySelector('button').addEventListener('click',function(){n.remove()});$('#o-lines').appendChild(n)}
+  addLine(itemId);
+  $('#o-add').addEventListener('click',function(){addLine()});
+  function sync(){var t=$('#o-type').value;$('#w-from').style.display=(t==='return'||t==='receipt'||t==='adjust')?'none':'';$('#w-to').style.display=(t==='transfer'||t==='return'||t==='receipt')?'':'none';if(t==='adjust'){$('#w-from').style.display='';$('#w-from').firstChild.textContent='Место'}else $('#w-from').firstChild.textContent='Откуда';var f=OPFROM[t];if(f)$('#o-from').value=f;var to=OPTO[t];if(to)$('#o-to').value=to}
+  $('#o-type').addEventListener('change',sync);sync();
+  $('#o-save').addEventListener('click',function(){
+    var t=$('#o-type').value,from=$('#o-from').value,to=$('#o-to').value;
+    var lines=[],bad=false;
+    document.querySelectorAll('#o-lines .line').forEach(function(r){
+      var nm=r.children[0].value.trim(),q=+r.children[1].value;if(!nm&&!q)return;
+      var id=NAMEID[nm];if(!id||!(q!==0)||isNaN(q)){bad=true;r.children[0].style.borderColor='var(--bad)';return}
+      if(t==='transfer'){lines.push([id,from,-q]);lines.push([id,to,q])}
+      else if(t==='return'||t==='receipt')lines.push([id,to,q]);
+      else if(t==='adjust')lines.push([id,from,q]);
+      else lines.push([id,from,-q]);
+    });
+    if(bad){toast('Выберите позицию из списка и укажите количество');return}
+    if(!lines.length){toast('Добавьте хотя бы одну позицию');return}
+    if(t==='transfer'&&from===to){toast('Места отправления и назначения совпадают');return}
+    saveMove({ts:new Date($('#o-date').value||Date.now()).toISOString(),type:t,ref:$('#o-ref').value.trim(),note:$('#o-note').value.trim(),lines:lines,src:'ручной ввод'}).then(function(){toast('Операция записана, остатки обновлены');closeLayer()},function(e){toast('Не удалось записать: '+(e&&e.message||e))});
+  });
+}
+
+/* ---------- инвентаризация ---------- */
+var invLoc='skl',invG='all';
+function openInv(){
+  closeLayer();
+  var l=$('#layer');
+  function body(){
+    var list=ITEMS.filter(function(it){return(invG==='all'||it.g===invG)&&(calc(it,invLoc)!=null||fact(it,invLoc)!=null)});
+    return'<div class="scroll" style="max-height:52vh"><table><thead><tr><th class="name" style="left:0">Наименование</th><th class="c">Расчёт</th><th class="c">Факт</th><th class="c">Δ</th></tr></thead><tbody>'+list.map(function(it){var c=calc(it,invLoc),f=fact(it,invLoc);return'<tr><td class="name">'+esc(it.n)+'</td><td class="c">'+(c==null?'—':c)+'</td><td class="c"><input type="number" data-i="'+esc(it.id)+'" data-c="'+(c==null?0:c)+'" data-f="'+(f==null?'':f)+'" value="'+(f==null?'':f)+'" style="width:80px" aria-label="Факт"></td><td class="c" data-d="'+esc(it.id)+'">'+(f==null?'':(f-(c||0)))+'</td></tr>'}).join('')+'</tbody></table></div>';
+  }
+  l.innerHTML='<div class="shade" data-close></div><div class="modal"><div class="box" role="dialog" aria-label="Инвентаризация"><h3>Инвентаризация</h3><div class="row2"><label class="f">Место хранения'+locSel('i-loc',invLoc)+'</label><label class="f">Группа<select id="i-g"><option value="all">Все группы</option>'+GROUPS.filter(function(g){return G[g[0]]}).map(function(g){return'<option value="'+g[0]+'"'+(invG===g[0]?' selected':'')+'>'+esc(g[1])+'</option>'}).join('')+'</select></label></div><div id="i-body">'+body()+'</div>'+
+    '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap"><button data-close>Отмена</button><button id="i-save">Сохранить факт</button><button class="primary" id="i-accept">Сохранить и принять факт как расчёт</button></div></div></div>';
+  l.querySelectorAll('[data-close]').forEach(function(b){b.addEventListener('click',closeLayer)});
+  function rebind(){
+    $('#i-body').querySelectorAll('input[data-i]').forEach(function(inp){inp.addEventListener('input',function(){var d=$('#i-body [data-d="'+inp.dataset.i+'"]');d.textContent=inp.value===''?'':(+inp.value-(+inp.dataset.c))})});
+  }
+  function reload(){invLoc=$('#i-loc').value;invG=$('#i-g').value;$('#i-body').innerHTML=body();rebind()}
+  $('#i-loc').addEventListener('change',reload);$('#i-g').addEventListener('change',reload);rebind();
+  function collect(){
+    var ts=nowIso(),per={},moves=[];
+    $('#i-body').querySelectorAll('input[data-i]').forEach(function(inp){
+      var id=inp.dataset.i,it=IDX[id],old=inp.dataset.f===''?null:+inp.dataset.f,v=inp.value===''?null:+inp.value;
+      if(v===old)return;
+      (per[it.g]=per[it.g]||{})[id]={};per[it.g][id][invLoc]=[v,ts];
+      if(v!=null&&v!==+inp.dataset.c)moves.push([id,invLoc,v-(+inp.dataset.c)]);
+    });
+    return{per:per,moves:moves,ts:ts};
+  }
+  function save(accept){
+    var r=collect(),gs=Object.keys(r.per);
+    if(!gs.length){toast('Нечего сохранять');return}
+    Promise.all(gs.map(function(g){return writeCounts(g,r.per[g])})).then(function(){
+      if(accept&&r.moves.length)return saveMove({ts:r.ts,type:'adjust',ref:'Инвентаризация: '+LN[invLoc],lines:r.moves,src:'инвентаризация'});
+    }).then(function(){toast('Инвентаризация сохранена');closeLayer()},function(e){toast('Не удалось сохранить: '+(e&&e.message||e))});
+  }
+  $('#i-save').addEventListener('click',function(){save(false)});
+  $('#i-accept').addEventListener('click',function(){save(true)});
+}
+
+/* ---------- импорт ---------- */
+function readSheet(file){
+  return new Promise(function(res,rej){
+    if(typeof XLSX==='undefined'){rej(new Error('Библиотека чтения Excel не загрузилась'));return}
+    var fr=new FileReader();fr.onerror=function(){rej(new Error('Файл не прочитан'))};
+    fr.onload=function(){try{var wb=XLSX.read(new Uint8Array(fr.result),{type:'array'});var ws=wb.Sheets[wb.SheetNames[0]];res(XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''}))}catch(e){rej(e)}};
+    fr.readAsArrayBuffer(file);
+  });
+}
+var GR=function(n){var s=n.toLowerCase();var m=[['конструктор|игра|пазл|территория','kits'],['футболк|майк','tee'],['худи|свитшот|олимпийк|анорак|костюм','hood'],['брюки|джоггер|палаццо','pants'],['кепк|шапк|бафф|шарф|носки','head'],['рюкзак|шоппер|мешок|пакет|картхолдер|обложк','bags'],['магнит|значок|брелок|стикер|ремувк|открытк|блокнот|карандаш|набор|сертификат','souv']];for(var i=0;i<m.length;i++)if(new RegExp(m[i][0]).test(s))return m[i][1];return'other'};
+function findItem(name,code,art){
+  var byCode=null,byName=null;
+  var kn=nk(name);
+  for(var i=0;i<ITEMS.length;i++){var it=ITEMS[i];
+    if(code&&it.c&&String(it.c)===String(code))return it;
+    if(!byName&&(nk(it.n)===kn||(it.al&&nk(it.al)===kn)))byName=it;
+  }
+  return byName;
+}
+function nextId(){var m=0;ITEMS.forEach(function(i){var n=+String(i.id).replace(/\D/g,'');if(n>m)m=n});return m}
+function cloneG(g){return JSON.parse(JSON.stringify(G[g]))}
+function colIndex(head,res){for(var i=0;i<head.length;i++){var h=String(head[i]).toLowerCase().trim();for(var j=0;j<res.length;j++)if(res[j].test(h))return i}return -1}
+var num=function(v){if(typeof v==='number')return v;v=String(v).replace(/\s/g,'').replace(',','.');var n=parseFloat(v);return isNaN(n)?null:n};
+
+function openImp(){
+  closeLayer();
+  var l=$('#layer');
+  l.innerHTML='<div class="shade" data-close></div><div class="modal"><div class="box" role="dialog" aria-label="Импорт"><h3>Импорт данных</h3>'+
+  '<div class="imp"><h4>МойСклад: остаток склада</h4><div class="muted">Выгрузка «Остатки» в Excel: нужны колонки «Наименование», «Код» и «Остаток». Склад МС заменяется остатком из файла, операции до загрузки остаются в журнале как уже учтённые.</div><input type="file" id="f-ms" accept=".xlsx,.xls,.csv"><label style="display:block;margin-top:6px"><input type="checkbox" id="ms-new" checked> добавлять новые позиции</label><label style="display:block"><input type="checkbox" id="ms-zero"> обнулять позиции, которых нет в файле</label><div class="preview" id="p-ms"></div><button id="a-ms" disabled>Применить</button></div>'+
+  '<div class="imp"><h4>Лист Мурашова: магазин, брак, точки «Арт»</h4><div class="muted">Лист «Таблица_2026_ИТОГ…» скачать как .xlsx (Файл → Скачать). Колонки как в листе: склад, магазин, брак, затем пары «расчётный / фактический» по СХД, НУР, Ноябрьску, ЛБТ и Тарко-Сале.</div><input type="file" id="f-sh" accept=".xlsx,.xls"><div class="preview" id="p-sh"></div><button id="a-sh" disabled>Применить</button></div>'+
+  '<div class="imp"><h4>Эвотор: отчёт о продажах</h4><div class="muted">Отчёт «Продажи по товарам» из кабинета Эвотор в Excel: нужны колонки «Наименование» и «Количество». Продажа спишется с выбранного места.</div><div class="row2"><label class="f">Место'+locSel('ev-loc','mag')+'</label><label class="f">Дата продаж<input type="datetime-local" id="ev-date"></label></div><input type="file" id="f-ev" accept=".xlsx,.xls,.csv"><div class="preview" id="p-ev"></div><button id="a-ev" disabled>Применить</button></div>'+
+  '<div style="display:flex;justify-content:flex-end"><button data-close>Закрыть</button></div></div></div>';
+  l.querySelectorAll('[data-close]').forEach(function(b){b.addEventListener('click',closeLayer)});
+  var d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());$('#ev-date').value=d.toISOString().slice(0,16);
+
+  var msPlan=null,shPlan=null,evPlan=null;
+  $('#f-ms').addEventListener('change',function(e){
+    var f=e.target.files[0];if(!f)return;$('#p-ms').textContent='Читаю файл…';
+    readSheet(f).then(function(rows){
+      var hi=-1;for(var i=0;i<Math.min(rows.length,15);i++){if(colIndex(rows[i],[/наименован/])>=0&&colIndex(rows[i],[/^остаток|остаток$/,/^кол/])>=0){hi=i;break}}
+      if(hi<0)throw new Error('Не нашёл строку с колонками «Наименование» и «Остаток»');
+      var h=rows[hi],cn=colIndex(h,[/наименован/]),cc=colIndex(h,[/^код$/,/код/]),ca=colIndex(h,[/артикул/]),cs=colIndex(h,[/^остаток$/,/^остаток/,/остаток$/,/^кол/]),ck=colIndex(h,[/себестоим/]),cp=colIndex(h,[/цена прод/,/^цена/]);
+      var found=[],fresh=[],seen={};
+      rows.slice(hi+1).forEach(function(r){var nm=String(r[cn]||'').trim();var q=num(r[cs]);if(!nm||q===null)return;
+        var it=findItem(nm,cc>=0?String(r[cc]||'').trim():'',ca>=0?r[ca]:'');
+        var rec={name:nm,code:cc>=0?String(r[cc]||'').trim():'',art:ca>=0?String(r[ca]||'').trim():'',q:q,k:ck>=0?num(r[ck]):null,p:cp>=0?num(r[cp]):null};
+        if(it){rec.id=it.id;found.push(rec);seen[it.id]=1}else fresh.push(rec)});
+      msPlan={found:found,fresh:fresh,seen:seen};
+      $('#p-ms').textContent='Строк в файле: '+(found.length+fresh.length)+'. Найдено в справочнике: '+found.length+', новых: '+fresh.length+', не в файле: '+ITEMS.filter(function(i){return!seen[i.id]&&i.L&&i.L.skl!==undefined}).length+'.';
+      $('#a-ms').disabled=false;
+    }).catch(function(err){msPlan=null;$('#p-ms').textContent='Ошибка: '+err.message;$('#a-ms').disabled=true});
+  });
+  $('#a-ms').addEventListener('click',function(){
+    if(!msPlan)return;var ts=nowIso(),addNew=$('#ms-new').checked,zero=$('#ms-zero').checked;
+    var per={};var mx=nextId();
+    function gd(g){return per[g]||(per[g]=cloneG(g))}
+    msPlan.found.forEach(function(r){var it=IDX[r.id];var gd1=gd(it.g);var o=gd1.items.filter(function(x){return x.id===r.id})[0];o.L=o.L||{};o.L.skl=r.q;if(r.k)o.k=r.k;if(r.p)o.p=r.p;if(r.code&&!o.c)o.c=r.code;o.ms=1});
+    if(zero)ITEMS.forEach(function(it){if(!msPlan.seen[it.id]&&it.ms&&it.L&&it.L.skl!==undefined){var o=gd(it.g).items.filter(function(x){return x.id===it.id})[0];o.L.skl=0}});
+    if(addNew)msPlan.fresh.forEach(function(r){var g=GR(r.name);if(!G[g]){return}mx++;gd(g).items.push({id:'i'+String(mx).padStart(3,'0'),n:r.name,c:r.code,a:r.art,k:r.k||0,p:r.p||0,L:{skl:r.q},ms:1})});
+    var gs=Object.keys(per);
+    // позиции без группы-приёмника (редкий случай) пропускаются
+    Promise.all(gs.map(function(g){per[g].ts=Object.assign({},G[g].ts||{},{skl:ts});return db.doc('base/'+g).set(per[g])})).then(function(){
+      toast('Остаток МойСклад загружен: '+msPlan.found.length+' поз.');closeLayer()},function(e){toast('Не удалось записать: '+(e&&e.message||e))});
+  });
+
+  $('#f-sh').addEventListener('change',function(e){
+    var f=e.target.files[0];if(!f)return;$('#p-sh').textContent='Читаю файл…';
+    readSheet(f).then(function(rows){
+      var out=[],fresh=[];
+      rows.forEach(function(r){var n=r[0];if(typeof n!=='number'&&!/^\d+$/.test(String(n)))return;var nm=String(r[1]||'').trim();if(!nm||/^наименов/i.test(nm))return;
+        var v=function(i){var x=r[i];return x===''||x==null?null:num(x)};
+        var rec={name:nm,mag:v(3),brak:v(4),sl:v(2),loc:{sx:[v(6),v(7)],nur:[v(9),v(10)],nb:[v(12),v(13)],lbt:[v(15),v(16)],tk:[v(18),v(19)]}};
+        var it=findItem(nm,'','');if(it){rec.id=it.id;out.push(rec)}else fresh.push(rec)});
+      shPlan={found:out,fresh:fresh};
+      $('#p-sh').textContent='Позиций в листе: '+(out.length+fresh.length)+'. Найдено: '+out.length+', новых: '+fresh.length+'. Названия сверяются с МойСклад и с прежними названиями листа.';
+      $('#a-sh').disabled=!(out.length||fresh.length);
+    }).catch(function(err){shPlan=null;$('#p-sh').textContent='Ошибка: '+err.message;$('#a-sh').disabled=true});
+  });
+  $('#a-sh').addEventListener('click',function(){
+    if(!shPlan)return;var ts=nowIso(),per={},cn={},mx=nextId();
+    function gd(g){return per[g]||(per[g]=cloneG(g))}
+    function apply(o,rec,g,id){o.L=o.L||{};if(rec.mag!=null)o.L.mag=rec.mag;if(rec.brak!=null)o.L.brak=rec.brak;if(!o.ms&&rec.sl!=null)o.L.skl=rec.sl;o.al=rec.name;
+      Object.keys(rec.loc).forEach(function(k){var p=rec.loc[k];if(p[0]!=null)o.L[k]=p[0];if(p[1]!=null){((cn[g]=cn[g]||{})[id]=cn[g][id]||{})[k]=[p[1],ts]}})}
+    shPlan.found.forEach(function(r){var it=IDX[r.id];var o=gd(it.g).items.filter(function(x){return x.id===r.id})[0];apply(o,r,it.g,r.id)});
+    shPlan.fresh.forEach(function(r){var g=GR(r.name);if(!G[g])g='other';if(!G[g])return;mx++;var id='i'+String(mx).padStart(3,'0');var o={id:id,n:r.name,c:'',a:'',k:0,p:0,L:{},ms:0};gd(g).items.push(o);apply(o,r,g,id)});
+    var gs=Object.keys(per);
+    Promise.all(gs.map(function(g){per[g].ts=Object.assign({},G[g].ts||{},{mag:ts,brak:ts,sx:ts,nur:ts,nb:ts,lbt:ts,tk:ts});return db.doc('base/'+g).set(per[g]).then(function(){if(cn[g])return writeCounts(g,cn[g])})})).then(function(){toast('Лист Мурашова загружен: '+(shPlan.found.length+shPlan.fresh.length)+' поз.');closeLayer()},function(e){toast('Не удалось записать: '+(e&&e.message||e))});
+  });
+
+  $('#f-ev').addEventListener('change',function(e){
+    var f=e.target.files[0];if(!f)return;$('#p-ev').textContent='Читаю файл…';
+    readSheet(f).then(function(rows){
+      var hi=-1;for(var i=0;i<Math.min(rows.length,20);i++){if(colIndex(rows[i],[/наименован|товар/])>=0&&colIndex(rows[i],[/колич|кол-во|^шт/])>=0){hi=i;break}}
+      if(hi<0)throw new Error('Не нашёл колонки «Наименование» и «Количество»');
+      var h=rows[hi],cn=colIndex(h,[/наименован|товар/]),cq=colIndex(h,[/колич|кол-во|^шт/]),cc=colIndex(h,[/^код$/,/код|штрих/]);
+      var ok=[],miss=[];
+      rows.slice(hi+1).forEach(function(r){var nm=String(r[cn]||'').trim(),q=num(r[cq]);if(!nm||!q)return;var it=findItem(nm,cc>=0?String(r[cc]||'').trim():'','');if(it)ok.push([it.id,q]);else miss.push(nm+' ×'+q)});
+      evPlan={ok:ok,miss:miss,name:f.name};
+      $('#p-ev').textContent='Строк: '+(ok.length+miss.length)+'. Сопоставлено: '+ok.length+', не найдено: '+miss.length+(miss.length?'\n'+miss.slice(0,8).join('; ')+(miss.length>8?'…':''):'');
+      $('#a-ev').disabled=!ok.length;
+    }).catch(function(err){evPlan=null;$('#p-ev').textContent='Ошибка: '+err.message;$('#a-ev').disabled=true});
+  });
+  $('#a-ev').addEventListener('click',function(){
+    if(!evPlan)return;var loc=$('#ev-loc').value;
+    saveMove({ts:new Date($('#ev-date').value||Date.now()).toISOString(),type:'sale_evotor',ref:'Эвотор: '+evPlan.name,lines:evPlan.ok.map(function(x){return[x[0],loc,-x[1]]}),src:'evotor',note:evPlan.miss.length?'Не сопоставлено: '+evPlan.miss.length:''}).then(function(){toast('Продажи кассы записаны');closeLayer()},function(e){toast('Не удалось записать: '+(e&&e.message||e))});
+  });
+}
+
+/* ---------- CSV ---------- */
+function exportCsv(){
+  claude.use('downloads').then(function(dl){
+    if(!dl){toast('Скачивание недоступно в этом окне');return}
+    var q=function(v){v=String(v==null?'':v);return/[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+    var head=['Группа','Наименование','Код'];LOCS.forEach(function(l){head.push(l[1]+' расчёт');head.push(l[1]+' факт')});head.push('Итого расчёт');
+    var rows=[head];
+    visible().forEach(function(it){var r=[(G[it.g]||{}).name,it.n,it.c||''];LOCS.forEach(function(l){var c=calc(it,l[0]),f=fact(it,l[0]);r.push(c==null?'':c);r.push(f==null?'':f)});r.push(total(it));rows.push(r)});
+    dl.save({filename:'Остатки СХ.csv',data:'﻿'+rows.map(function(r){return r.map(q).join(';')}).join('\r\n')}).then(function(){toast('Файл сохранён')},function(){toast('Сохранение отменено')});
+  });
+}
+
+
+/* ---------- комиссионеры ---------- */
+function commCalc(c){
+  var R=CR.filter(function(r){return r.comm===c.id}),P=CP.filter(function(p){return p.comm===c.id});
+  var sold=0,fee=0,A=0,B=0,pin=0,pout=0,est=0;
+  R.forEach(function(r){sold+=r.sold||0;fee+=r.fee||0;if(r.est)est++;
+    if(c.kind==='in')B+=(r.sold||0)-(r.fee||0);
+    else if(r.recv==='they')A+=(r.sold||0)-(r.fee||0);
+    else B+=r.fee||0});
+  P.forEach(function(p){if(p.dir==='in')pin+=p.sum||0;else pout+=p.sum||0});
+  return{R:R,P:P,sold:sold,fee:fee,pin:pin,pout:pout,est:est,A:A,B:B,bal:(A-pin)-(B-pout),has:R.length>0};
+}
+var MODEL={holds:'Он получает деньги и перечисляет нам',qr:'Деньги идут нам, мы платим ему вознаграждение',we:'Мы комиссионер: выручку перечисляем ему'};
+function renderComm(){
+  var list=Object.keys(CM).map(function(k){return CM[k]}).sort(function(a,b){return a.name<b.name?-1:1});
+  if(!list.length)return'<div class="panel"><div class="empty">Комиссионеров пока нет в базе.</div></div>';
+  var owe=0,we=0;
+  var rows=list.map(function(c){var k=commCalc(c);if(k.has){if(k.bal>0)owe+=k.bal;else we-=k.bal}
+    var st=!k.has?'<span class="tag warn">нет отчётов</span>':(k.bal>0?'<span class="tag bad">должен нам</span>':(k.bal<0?'<span class="tag warn">мы должны</span>':'<span class="tag good">в расчёте</span>'));
+    return'<tr class="item" data-comm="'+esc(c.id)+'" style="cursor:pointer"><td class="name"><div>'+esc(c.name)+'</div><div class="code">'+esc(c.contract||'')+'</div></td><td>'+esc(c.kind==='in'?'мы комиссионер':(c.model==='holds'?'деньги у него':'деньги у нас'))+'</td><td class="tot">'+tcell(c,'Sent')+'</td><td class="tot">'+tcell(c,'Sold')+'</td><td class="tot">'+tcell(c,'Left')+'</td><td class="tot">'+(k.has?money(k.sold):'—')+'</td><td class="tot">'+(k.has?money(k.fee):'—')+'</td><td class="tot">'+(k.pin?money(k.pin):'—')+'</td><td class="tot">'+(k.pout?money(k.pout):'—')+'</td><td class="tot" style="'+(k.has?(k.bal>0?'color:var(--bad)':(k.bal<0?'color:var(--warn)':'')):'')+'">'+(k.has?(k.bal>0?'+':'')+money(k.bal):'—')+'</td><td class="tot">'+factCell(c)+'</td><td>'+st+'</td></tr>'}).join('');
+  return'<section class="tiles">'+tile('Они должны нам',money(owe)+' ₽','по отчётам минус их платежи',owe?'bad':'')+tile('Мы должны им',money(we)+' ₽','вознаграждение и выручка к перечислению',we?'warn':'')+tile('Комиссионеров',nf.format(list.length),'без отчётов: '+list.filter(function(c){return!commCalc(c).has}).length)+'</section>'+
+  '<div class="panel"><div class="scroll" style="max-height:none"><table><thead><tr><th class="name">Комиссионер, договор</th><th>Схема</th><th class="r">Передано, ₽</th><th class="r">Продано, ₽</th><th class="r">Остаток, ₽</th><th class="r">Продано по отчётам, ₽</th><th class="r">Вознаграждение, ₽</th><th class="r">Получено от него, ₽</th><th class="r">Выплачено ему, ₽</th><th class="r">Баланс по листу, ₽</th><th class="r">По документам и договору, ₽</th><th></th></tr></thead><tbody>'+rows+totRow('Итого арт-резиденции (ОМЦ, Лампа, НУ, Тарко, Ноябрьск)',RESID)+totRow('ОДР (одежда + конструкторы)',['odr'])+totRow('Итого резиденции + ОДР',RESID.concat(['odr']))+'</tbody></table></div></div>'+
+  '<div class="muted" style="font-size:12px;margin:6px 2px 10px">Передано, продано и остаток — в рублях по цене товара; шт. под числом. Продано: документ точки, где есть, иначе лист Мурашова. У ОДР в суммы включены конструкторы Ямалгосснаба (договор 825). «Передано» по листам неполное: передано − продано может не совпадать с остатком.</div>'+
+  renderDeals()+
+  '<div class="panel" style="margin-top:2px"><div style="padding:12px 14px"><b>Как считается баланс.</b> Плюс: комиссионер должен нам. Минус: мы должны ему. Он получает деньги: должен нам «продано − вознаграждение − что уже перечислил». Деньги идут нам по QR: мы должны ему «вознаграждение − что уже выплатили». Мы комиссионер: должны «выручка − наше вознаграждение − что уже перечислили». Продажи и вознаграждение берутся из отчётов (сейчас из вкладок листа Мурашова), платежи из банковской выписки. Где вознаграждение в листе не заполнено, оно оценено по среднему проценту этого комиссионера и помечено в карточке.</div></div>';
+}
+function renderDeals(){
+  var s=DEAL.summary,o=DEAL.orders,h='';
+  if(s&&s.rows)h+='<div class="panel" style="margin-top:8px"><div style="padding:12px 14px 4px"><b>Движение товара и продажи по договорам</b> <span class="muted">(сводная таблица Мурашова)</span></div><div class="scroll" style="max-height:none"><table class="mini"><thead><tr><th>Показатель</th><th class="r">Шт.</th><th class="r">Сумма, ₽</th><th>Примечание</th></tr></thead><tbody>'+s.rows.map(function(r){return'<tr><td>'+esc(r.n)+'</td><td class="r">'+nf.format(r.q||0)+'</td><td class="r">'+money(r.r||0)+'</td><td class="muted">'+esc(r.note||'')+'</td></tr>'}).join('')+'</tbody></table></div></div>';
+  if(o&&o.orders)h+='<div class="panel" style="margin-top:8px"><div style="padding:12px 14px 4px"><b>Продажи клиентам по заказам</b> <span class="muted">(вкладки «ЗАКАЗ …»)</span></div><div class="scroll" style="max-height:none"><table class="mini"><thead><tr><th>Заказ</th><th class="r">Шт.</th><th class="r">Сумма, ₽</th></tr></thead><tbody>'+o.orders.map(function(r){return'<tr><td>'+esc(r.client)+'</td><td class="r">'+(r.qty?nf.format(r.qty):'—')+'</td><td class="r">'+money(r.total||0)+'</td></tr>'}).join('')+'</tbody></table></div></div>';
+  return h;
+}
+function posTable(id){
+  var p=POS[id];if(!p||!p.items||!p.items.length)return'';
+  var S=p.items.reduce(function(a,i){a.s+=i.sent;a.d+=i.sold;a.l+=i.left;a.r+=i.rub;return a},{s:0,d:0,l:0,r:0});
+  return'<h3 style="font-size:16px;margin-top:16px">Позиции: передано, продано, остаток</h3><p class="muted" style="margin:2px 0 6px">По вкладке «'+esc(p.tab)+'» таблицы Мурашова. Остаток берётся из последнего отчёта точки.</p><div class="scroll" style="max-height:300px"><table class="mini"><thead><tr><th>Позиция</th><th class="r">Передано</th><th class="r">Продано</th><th class="r">Остаток</th><th class="r">Продано ₽</th></tr></thead><tbody><tr style="font-weight:600"><td>Итого</td><td class="r">'+S.s+'</td><td class="r">'+S.d+'</td><td class="r">'+S.l+'</td><td class="r">'+money(S.r)+'</td></tr>'+p.items.map(function(i){return'<tr><td>'+esc(i.n)+'</td><td class="r">'+i.sent+'</td><td class="r">'+i.sold+'</td><td class="r">'+i.left+'</td><td class="r">'+(i.rub?money(i.rub):'—')+'</td></tr>'}).join('')+'</tbody></table></div>';
+}
+function openComm(id){
+  var c=CM[id];if(!c)return;closeLayer();
+  var k=commCalc(c);
+  var rr=k.R.slice().sort(function(a,b){return a.ts<b.ts?-1:1}).map(function(r){return'<tr><td>'+esc(r.period)+'</td><td class="r">'+(r.qty||0)+'</td><td class="r">'+money(r.sold)+'</td><td class="r">'+money(r.fee)+(r.est?' <span class="tag warn" title="В листе не заполнено, оценка по среднему проценту">оц.</span>':'')+'</td><td class="r">'+(r.recv==='they'?'у него':'у нас')+'</td><td><button class="small danger" data-delc="crep:'+esc(r.id)+'">×</button></td></tr>'}).join('')||'<tr><td colspan="6" class="muted">Отчётов нет. Добавьте отчёт ниже или пришлите мне файлы.</td></tr>';
+  var pp=k.P.slice().sort(function(a,b){return a.date<b.date?-1:1}).map(function(p){return'<tr><td>'+esc(p.date)+'</td><td>'+(p.dir==='in'?'от него нам':'от нас ему')+'</td><td class="r">'+money(p.sum)+'</td><td class="muted">'+esc(p.note||'')+'</td><td><button class="small danger" data-delc="cpay:'+esc(p.id)+'">×</button></td></tr>'}).join('')||'<tr><td colspan="5" class="muted">Платежей нет.</td></tr>';
+  var rate=(function(){var f=0,sf=0;k.R.forEach(function(r){if(r.fee>0&&!r.est){f+=r.fee;sf+=r.sold}});if(sf)return f/sf;if(c.declared&&c.fee_total)return c.fee_total/c.declared;return 0.2})();
+  $('#layer').innerHTML='<div class="shade" data-close></div><aside class="drawer" role="dialog" aria-label="Комиссионер" style="width:min(640px,100vw)"><div style="display:flex;justify-content:space-between;gap:10px"><h3>'+esc(c.name)+'</h3><button class="small" data-close>Закрыть</button></div>'+
+  '<dl class="kv"><dt>Договор</dt><dd>'+esc(c.contract||'—')+'</dd><dt>Передано по договору</dt><dd>'+(c.declared?money(c.declared)+' ₽':'—')+'</dd><dt>Вознаграждение по спец.</dt><dd>'+(c.fee_total?money(c.fee_total)+' ₽':'—')+'</dd><dt>Схема расчётов</dt><dd><select id="c-model">'+(c.kind==='in'?'<option value="we" selected>'+MODEL.we+'</option>':'<option value="holds"'+(c.model==='holds'?' selected':'')+'>'+MODEL.holds+'</option><option value="qr"'+(c.model==='qr'?' selected':'')+'>'+MODEL.qr+'</option>')+'</select></dd></dl>'+
+  (c.note?'<p class="muted">'+esc(c.note)+'</p>':'')+
+  '<div class="tiles" style="margin:8px 0">'+tile('Продано',k.has?money(k.sold)+' ₽':'—','по отчётам')+tile('Вознаграждение',k.has?money(k.fee)+' ₽':'—','начислено')+tile('Баланс',k.has?(k.bal>0?'+':'')+money(k.bal)+' ₽':'—',k.has?(k.bal>0?'он должен нам':(k.bal<0?'мы должны ему':'в расчёте')):'нужны отчёты',k.has&&k.bal>0?'bad':(k.has&&k.bal<0?'warn':''))+'</div>'+
+  factBlock(c)+posTable(id)+rmaxTable(id)+'<h3 style="font-size:16px;margin-top:16px">Отчёты</h3><div class="scroll" style="max-height:240px"><table class="mini"><thead><tr><th>Период</th><th class="r">Шт.</th><th class="r">Продано ₽</th><th class="r">Вознагр. ₽</th><th class="r">Деньги</th><th></th></tr></thead><tbody>'+rr+'</tbody></table></div>'+
+  '<div class="row2" style="margin-top:8px"><label class="f">Период<input type="text" id="cr-p" placeholder="Октябрь 2026"></label><label class="f">Продано, шт.<input type="number" id="cr-q"></label><label class="f">Продано, ₽<input type="number" id="cr-s"></label><label class="f">Вознаграждение, ₽<input type="number" id="cr-f" placeholder="авто '+Math.round(rate*100)+' %"></label></div><button class="small primary" id="cr-add">Добавить отчёт</button>'+
+  '<h3 style="font-size:16px;margin-top:16px">Платежи</h3><div class="scroll" style="max-height:220px"><table class="mini"><thead><tr><th>Дата</th><th>Кто кому</th><th class="r">Сумма ₽</th><th>Назначение</th><th></th></tr></thead><tbody>'+pp+'</tbody></table></div>'+
+  '<div class="row2" style="margin-top:8px"><label class="f">Дата<input type="date" id="cp-d"></label><label class="f">Направление<select id="cp-r"><option value="in">От него нам</option><option value="out">От нас ему</option></select></label><label class="f">Сумма, ₽<input type="number" id="cp-s"></label><label class="f">Назначение<input type="text" id="cp-n"></label></div><button class="small primary" id="cp-add">Добавить платёж</button></aside>';
+  var L=$('#layer');
+  L.querySelectorAll('[data-close]').forEach(function(b){b.addEventListener('click',closeLayer)});
+  $('#c-model').addEventListener('change',function(e){db.doc('comm/'+id).update({model:e.target.value}).then(function(){toast('Схема сохранена')},function(x){toast('Не удалось сохранить: '+(x&&x.message||x))})});
+  $('#cr-add').addEventListener('click',function(){
+    var s=+$('#cr-s').value,p=$('#cr-p').value.trim();if(!p||!(s>0)){toast('Укажите период и сумму продаж');return}
+    var f=$('#cr-f').value===''?Math.round(s*rate):+$('#cr-f').value;
+    db.collection('crep').doc(uid()).set({comm:id,period:p,qty:+$('#cr-q').value||0,sold:s,fee:f,ts:nowIso(),src:'ручной ввод',recv:c.kind==='in'?'we':(c.model==='holds'?'they':'we'),est:$('#cr-f').value===''?1:0}).then(function(){toast('Отчёт добавлен');openComm(id)},function(x){toast('Не удалось записать: '+(x&&x.message||x))});
+  });
+  $('#cp-add').addEventListener('click',function(){
+    var s=+$('#cp-s').value,d=$('#cp-d').value;if(!d||!(s>0)){toast('Укажите дату и сумму');return}
+    db.collection('cpay').doc(uid()).set({comm:id,date:d,dir:$('#cp-r').value,sum:s,note:$('#cp-n').value.trim(),src:'ручной ввод'}).then(function(){toast('Платёж добавлен');openComm(id)},function(x){toast('Не удалось записать: '+(x&&x.message||x))});
+  });
+}
+document.addEventListener('click',function(e){
+  var t=e.target,r=t.closest&&t.closest('tr[data-comm]');if(r&&!$('.drawer')){openComm(r.dataset.comm);return}
+  var d=t.closest&&t.closest('[data-delc]');
+  if(d){if(d.dataset.sure){var p=d.dataset.delc.split(':');var cid=(CR.concat(CP).filter(function(x){return x.id===p[1]})[0]||{}).comm;db.collection(p[0]).doc(p[1]).delete().then(function(){toast('Удалено');if(cid)openComm(cid)},function(x){toast('Не удалось удалить: '+(x&&x.message||x))});return}d.dataset.sure='1';d.textContent='ok?';setTimeout(function(){if(d){d.dataset.sure='';d.textContent='×'}},3500)}
+});
+
+/* ---------- задачи и документы ---------- */
+var DOCS=[],TASKS=[],AS=null,SMP=null,TS={who:'all',st:'open'},DF='all';
+var DT={contract:'Договор',invoice_in:'Счёт нам от поставщика',invoice_out:'Наш счёт покупателю',upd:'УПД, накладная, акт',comm_report:'Отчёт комиссионера',order:'Заказ, КП, спецификация',bank:'Выписка, платёжное',letter:'Письмо, претензия',other:'Другое'};
+var DROUTE={contract:'Договоры',invoice_in:'Закупки и расходы/Счета',invoice_out:'Продажи/Счета',upd:'Закупки/УПД и акты',comm_report:'Комиссионеры/Отчёты',order:'Продажи/Заказы и КП',bank:'Банк',letter:'Переписка',other:'Разобрать'};
+var WHO={owner:'Владелец',staff:'Сотрудник'};
+function today(){return new Date().toISOString().slice(0,10)}
+function norm(s){return String(s||'').toLowerCase().replace(/[«»"'.,]/g,' ').replace(/\s+/g,' ').trim()}
+function docPath(d){var c=d.cls||{};var cp=String(c.counterparty||'').replace(/[\\\/:*?"<>|]/g,' ').replace(/\s+/g,' ').trim().slice(0,50);return DROUTE[c.type||'other']+(cp&&c.type!=='bank'&&c.type!=='other'?'/'+cp:'')}
+function dmy2(s){return s?String(s).split('-').reverse().join('.'):'—'}
+
+/* --- задачи --- */
+function addTask(o){var id=uid();o.status='open';o.ts=nowIso();return db.collection('tasks').doc(id).set(o)}
+function autoTask(key,o){if(!db||TASKS.some(function(t){return t.auto===key}))return;o.auto=key;addTask(o)}
+function renderTasks(){
+  var td=today(),open=TASKS.filter(function(t){return t.status!=='done'});
+  var late=open.filter(function(t){return t.due&&t.due<td});
+  var list=TASKS.filter(function(t){return(TS.who==='all'||t.who===TS.who)&&(TS.st==='all'||(TS.st==='open'?t.status!=='done':t.status==='done'))}).sort(function(a,b){
+    var ad=a.status==='done',bd=b.status==='done';if(ad!==bd)return ad?1:-1;
+    if((a.prio==='high')!==(b.prio==='high'))return a.prio==='high'?-1:1;
+    if(a.due&&b.due&&a.due!==b.due)return a.due<b.due?-1:1;if(!!a.due!==!!b.due)return a.due?-1:1;
+    return a.ts<b.ts?1:-1});
+  var chips=function(key,val,opts){return opts.map(function(o){return'<button class="small'+(val===o[0]?' primary':'')+'" data-'+key+'="'+o[0]+'">'+o[1]+'</button>'}).join('')};
+  var rows=list.map(function(t){
+    var done=t.status==='done',over=!done&&t.due&&t.due<td;
+    var src=t.doc&&DOCS.filter(function(d){return d.id===t.doc})[0];
+    return'<tr class="item"><td style="width:34px"><input type="checkbox" data-tdone="'+esc(t.id)+'"'+(done?' checked':'')+' aria-label="Выполнено"></td>'+
+      '<td style="'+(done?'text-decoration:line-through;color:var(--muted)':'')+'"><div>'+(t.prio==='high'?'<span class="tag bad">срочно</span> ':'')+esc(t.title)+'</div>'+(t.note?'<div class="muted" style="font-size:12.5px">'+esc(t.note)+'</div>':'')+(src?'<div><a href="#" data-opendoc="'+esc(src.id)+'" style="font-size:12.5px">Документ: '+esc(src.name)+'</a></div>':'')+'</td>'+
+      '<td><button class="small" data-twho="'+esc(t.id)+'" title="Передать другому">'+WHO[t.who||'owner']+'</button></td>'+
+      '<td><input type="date" data-tdue="'+esc(t.id)+'" value="'+esc(t.due||'')+'" style="'+(over?'border-color:var(--bad);color:var(--bad)':'')+'" aria-label="Срок"></td>'+
+      '<td><button class="small danger" data-tdel="'+esc(t.id)+'">×</button></td></tr>'}).join('')||'<tr><td colspan="5" class="muted" style="padding:24px;text-align:center">Задач нет.</td></tr>';
+  return'<section class="tiles">'+tile('Открыто',nf.format(open.length),'всего задач')+tile('У владельца',nf.format(open.filter(function(t){return t.who==='owner'}).length),'ждут решения или действия')+tile('У сотрудника',nf.format(open.filter(function(t){return t.who==='staff'}).length),'в работе')+tile('Просрочено',nf.format(late.length),'срок прошёл',late.length?'bad':'')+'</section>'+
+  '<div class="panel" style="padding:12px 14px"><div class="row2" style="margin-bottom:8px"><label class="f" style="grid-column:span 2">Что нужно сделать<input type="text" id="t-title" maxlength="200" placeholder="Например: запросить акт сверки у ОДР"></label><label class="f">Кому<select id="t-who"><option value="staff">Сотрудник</option><option value="owner">Владелец</option></select></label><label class="f">Срок<input type="date" id="t-due"></label><label class="f">Важность<select id="t-prio"><option value="norm">Обычная</option><option value="high">Срочно</option></select></label></div><label class="f" style="margin-bottom:8px">Пояснение, если нужно<input type="text" id="t-note" maxlength="300"></label><button class="primary" id="t-add">Добавить задачу</button></div>'+
+  '<div class="filters">'+chips('tfw',TS.who,[['all','Все'],['owner','Владелец'],['staff','Сотрудник']])+'<span style="width:12px"></span>'+chips('tfs',TS.st,[['open','Открытые'],['done','Выполненные'],['all','Все']])+'</div>'+
+  '<div class="panel"><div class="scroll" style="max-height:none;min-height:0"><table><thead><tr><th></th><th>Задача</th><th>Кому</th><th>Срок</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+
+/* --- документы --- */
+function matchDoc(d){
+  var c=d.cls||{},m=[],amt=+c.amount;
+  if(c.comm_id&&CM[c.comm_id])m.push('Комиссионер в CRM: '+CM[c.comm_id].name);
+  if(amt>0)CP.forEach(function(p){if(Math.abs(p.sum-amt)<1)m.push('Платёж '+dmy2(p.date)+' на '+money(p.sum)+' ₽ ('+(CM[p.comm]?CM[p.comm].name:'комиссионер')+')')});
+  if(c.doc_no)DOCS.forEach(function(o){if(o.id!==d.id&&o.cls&&o.cls.doc_no===c.doc_no&&norm(o.cls.counterparty)===norm(c.counterparty))m.push('Возможный дубль: '+o.name)});
+  return m;
+}
+function renderDocs(){
+  var h='';
+  if(!AS)h+='<div class="panel" style="padding:10px 14px;border-color:var(--warn)"><b>Файлы не сохраняются.</b> Загрузка доступна редактору страницы и участникам с правом «Contributor». Распознавание работает и без сохранения.</div>';
+  if(!SMP)h+='<div class="panel" style="padding:10px 14px;margin-top:8px;border-color:var(--warn)"><b>Автоопределение выключено.</b> Автоматический разбор работает только в версии на claude.ai. Здесь документы раскладываются вручную.</div>';
+  var rev=DOCS.filter(function(d){return d.status==='review'||d.status==='error'}).length,fl=DOCS.filter(function(d){return d.status==='filed'}).length;
+  var list=DOCS.filter(function(d){return DF==='all'||(DF==='review'?(d.status==='review'||d.status==='error'||d.status==='work'):d.status==='filed')}).sort(function(a,b){return a.ts<b.ts?1:-1});
+  var rows=list.map(function(d){
+    var c=d.cls||{},st=d.status==='filed'?'<span class="tag good">разложен</span>':d.status==='work'?'<span class="tag">'+esc(d.step||'в работе')+'…</span>':d.status==='error'?'<span class="tag bad">не прочитан</span>':'<span class="tag warn">проверить</span>';
+    var mm=d.status==='work'?[]:matchDoc(d);
+    return'<tr class="item" data-doc="'+esc(d.id)+'" style="cursor:pointer"><td class="name"><div>'+esc(d.name)+'</div><div class="code">'+esc(c.summary||'')+'</div></td><td>'+esc(DT[c.type]||'—')+'</td><td>'+esc(c.counterparty||'—')+'</td><td>'+esc((c.doc_no?'№ '+c.doc_no:'')+(c.doc_date?' от '+dmy2(c.doc_date):'')||'—')+'</td><td class="tot">'+(c.amount>0?money(c.amount)+' ₽':'—')+'</td><td class="muted" style="font-size:12.5px">'+(d.status==='work'?'':esc(docPath(d)))+'</td><td style="font-size:12.5px">'+(mm.length?esc(mm.join('; ')):'<span class="muted">нет совпадений</span>')+'</td><td>'+st+'</td></tr>'}).join('')||'<tr><td colspan="8" class="muted" style="padding:24px;text-align:center">Документов пока нет. Перетащите файлы в рамку выше.</td></tr>';
+  return h+'<label class="drop" id="dz" style="margin-top:8px"><b>Перетащите документы сюда</b> или выберите файлы<div class="muted" style="font-size:12.5px">PDF, Word (.docx), Excel, фото и сканы. Тип, контрагент, номер, сумма и папка определяются сами. Чтобы файл попал в папку на диске, скажите мне «разбери входящие».</div><input type="file" id="d-file" multiple accept=".pdf,.docx,.xlsx,.xls,.csv,.txt,.jpg,.jpeg,.png,.webp"></label>'+
+  '<section class="tiles" style="margin-top:10px">'+tile('Документов',nf.format(DOCS.length),'загружено')+tile('Разложено',nf.format(fl),'уверенно определены',fl?'':'')+tile('Проверить',nf.format(rev),'нужен ваш взгляд',rev?'warn':'')+'</section>'+
+  '<div class="filters" style="margin:8px 0">'+[['all','Все'],['review','Проверить'],['filed','Разложены']].map(function(o){return'<button class="small'+(DF===o[0]?' primary':'')+'" data-df="'+o[0]+'">'+o[1]+'</button>'}).join('')+'</div>'+
+  '<div class="panel"><div class="scroll" style="max-height:none;min-height:0"><table><thead><tr><th class="name">Файл</th><th>Тип</th><th>Контрагент</th><th>№ и дата</th><th class="r">Сумма</th><th>Папка</th><th>Сверка</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+function upDoc(id,o){return db.collection('docs').doc(id).update(o)}
+async function toJpeg(blob,max){
+  max=max||1600;var bmp=await createImageBitmap(blob);var k=Math.min(1,max/Math.max(bmp.width,bmp.height));
+  var cv=document.createElement('canvas');cv.width=Math.round(bmp.width*k);cv.height=Math.round(bmp.height*k);cv.getContext('2d').drawImage(bmp,0,0,cv.width,cv.height);
+  return new Promise(function(ok,no){cv.toBlob(function(b){b?ok(b):no(new Error('нет изображения'))},'image/jpeg',0.82)});
+}
+async function extract(file){
+  var n=file.name.toLowerCase(),out={text:'',images:[]};
+  if(/\.(txt|csv|md)$/.test(n)){out.text=await file.text();return out}
+  if(/\.docx$/.test(n)){var z=await JSZip.loadAsync(await file.arrayBuffer());var x=await z.file('word/document.xml').async('string');out.text=x.replace(/<\/w:p>/g,'\n').replace(/<w:tab\/>/g,'\t').replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');return out}
+  if(/\.(xlsx|xls)$/.test(n)){var wb=XLSX.read(await file.arrayBuffer(),{type:'array'});wb.SheetNames.slice(0,3).forEach(function(s){out.text+='## '+s+'\n'+XLSX.utils.sheet_to_csv(wb.Sheets[s]).split('\n').slice(0,80).join('\n')+'\n'});return out}
+  if(/\.pdf$/.test(n)||file.type==='application/pdf'){
+    var P=window.pdfjsLib;if(!P)throw new Error('нет модуля чтения PDF');
+    P.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    var pdf=await P.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+    for(var i=1;i<=Math.min(pdf.numPages,4);i++){var pg=await pdf.getPage(i);var tc=await pg.getTextContent();out.text+=tc.items.map(function(it){return it.str}).join(' ')+'\n'}
+    if(out.text.replace(/\s/g,'').length<120){out.text='';
+      for(var j=1;j<=Math.min(pdf.numPages,2);j++){var p2=await pdf.getPage(j);var vp=p2.getViewport({scale:1.6});var cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;await p2.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+        out.images.push(await new Promise(function(ok){cv.toBlob(ok,'image/jpeg',0.8)}))}}
+    return out;
+  }
+  if(/\.(jpe?g|png|webp|gif)$/.test(n)||/^image\//.test(file.type)){out.images.push(await toJpeg(file));return out}
+  throw new Error('формат не поддерживается');
+}
+function classifyPrompt(name,text){
+  var comms=Object.keys(CM).map(function(k){return k+' = '+CM[k].name}).join('\n');
+  return'Ты помощник бухгалтера ООО «Северный Характер» (ИНН 8901042804, Салехард, одежда и сувениры с символикой Ямала). Определи, что за документ, и верни ТОЛЬКО JSON без пояснений.\n'+
+  'Типы (поле type): contract — договор, допсоглашение, спецификация; invoice_in — счёт на оплату, выставленный НАМ поставщиком; invoice_out — счёт, выставленный НАМИ покупателю; upd — УПД, накладная, акт; comm_report — отчёт комиссионера или агента о продажах; order — заказ, КП, коммерческое предложение; bank — выписка, платёжное поручение; letter — письмо, претензия, запрос; other — всё остальное.\n'+
+  'Наши комиссионеры (id = название):\n'+comms+'\n'+
+  'Поля JSON: type; counterparty (вторая сторона, не мы, коротко); inn (ИНН второй стороны, строка или ""); doc_no; doc_date (YYYY-MM-DD или ""); amount (итог документа в рублях, число, или null); direction ("we_pay" если платим мы, "they_pay" если платят нам, иначе ""); comm_id (id комиссионера из списка или ""); period (для отчёта комиссионера, например "Октябрь 2026"); qty (шт. по отчёту или null); sold (продано, ₽, или null); fee (вознаграждение, ₽, или null); summary (одна фраза по-русски: что это); confidence (число от 0 до 1); questions (массив коротких вопросов, если чего-то не хватает).\n'+
+  'Имя файла: '+name+'\nТекст документа:\n'+String(text||'(текста нет, смотри изображения)').slice(0,7000);
+}
+async function classify(file,ex){
+  var opt={modelTier:'default',cache:false};
+  if(ex.images.length){var lm=await SMP.limits();if(!lm||!lm.images)throw new Error('изображения не разрешены');opt.images=ex.images}
+  var r=await SMP.json(classifyPrompt(file.name,ex.text),opt);
+  if(!r||typeof r!=='object')throw new Error('пустой ответ');
+  if(!DT[r.type])r.type='other';
+  ['amount','qty','sold','fee'].forEach(function(k){r[k]=(r[k]===null||r[k]===''||isNaN(+r[k]))?null:+r[k]});
+  r.confidence=Math.max(0,Math.min(1,+r.confidence||0));return r;
+}
+function afterClassify(id,d){
+  var c=d.cls;var ok=c.confidence>=0.8&&c.type!=='other'&&c.counterparty;
+  upDoc(id,{cls:c,status:ok?'filed':'review',step:'',path:docPath(d)});
+  if(!ok)autoTask(id+':review',{title:'Проверить документ «'+d.name+'»',note:(c.questions&&c.questions.length?c.questions.slice(0,3).join('; '):'Не удалось уверенно определить тип или контрагента'),who:'staff',doc:id,prio:'norm'});
+  if(c.type==='invoice_in'&&c.amount>0&&c.direction!=='they_pay')autoTask(id+':pay',{title:'Оплатить или проверить счёт'+(c.doc_no?' № '+c.doc_no:'')+' от «'+(c.counterparty||'поставщика')+'» на '+money(c.amount)+' ₽',who:'owner',doc:id,prio:'norm',due:c.doc_date?new Date(new Date(c.doc_date).getTime()+7*864e5).toISOString().slice(0,10):''});
+  if(c.type==='contract')autoTask(id+':contract',{title:'Проверить условия договора с «'+(c.counterparty||'')+'» и внести в таблицу договоров',who:'owner',doc:id,prio:'norm'});
+  if(c.type==='comm_report'&&c.comm_id)autoTask(id+':rep',{title:'Внести отчёт комиссионера «'+(CM[c.comm_id]?CM[c.comm_id].name:'')+'» в расчёты (кнопка в карточке документа)',who:'staff',doc:id,prio:'norm'});
+}
+async function ingest(file){
+  var id=uid();var d={name:file.name,size:file.size,mime:file.type||'',status:'work',step:'Загрузка',ts:nowIso()};
+  await db.collection('docs').doc(id).set(d);
+  try{
+    if(AS){var up=await AS.upload(file);await upDoc(id,{asset:up.id,url:up.url,step:'Чтение'})}
+    var ex=await extract(file);await upDoc(id,{step:'Определение типа',excerpt:String(ex.text||'').replace(/\s+/g,' ').slice(0,400)});
+    if(!SMP){await upDoc(id,{status:'review',step:'',cls:{type:'other',summary:'Автоопределение недоступно: заполните вручную',confidence:0}});return}
+    d.cls=await classify(file,ex);d.id=id;d.name=file.name;afterClassify(id,d);
+  }catch(e){
+    var msg=(e&&(e.message||e.code))||String(e);
+    await upDoc(id,{status:'error',step:'',cls:{type:'other',summary:'Не удалось прочитать: '+msg,confidence:0},err:String(msg).slice(0,200)});
+    autoTask(id+':err',{title:'Разобрать вручную «'+file.name+'»',note:String(msg).slice(0,150),who:'staff',doc:id,prio:'norm'});
+  }
+}
+async function ingestAll(files){
+  if(!db){toast('Нет подключения к базе');return}
+  var arr=Array.prototype.slice.call(files);if(!arr.length)return;toast('Принято файлов: '+arr.length);
+  for(var i=0;i<arr.length;i++){if(arr[i].size>20*1024*1024){toast('«'+arr[i].name+'» больше 20 МБ, пропущен');continue}await ingest(arr[i])}
+}
+function openDoc(id){
+  var d=DOCS.filter(function(x){return x.id===id})[0];if(!d)return;closeLayer();var c=d.cls||{};
+  var opts=Object.keys(DT).map(function(k){return'<option value="'+k+'"'+(c.type===k?' selected':'')+'>'+DT[k]+'</option>'}).join('');
+  var cms='<option value="">—</option>'+Object.keys(CM).map(function(k){return'<option value="'+esc(k)+'"'+(c.comm_id===k?' selected':'')+'>'+esc(CM[k].name)+'</option>'}).join('');
+  var mm=matchDoc(d);
+  $('#layer').innerHTML='<div class="shade" data-close></div><aside class="drawer" role="dialog" aria-label="Документ" style="width:min(560px,100vw)"><div style="display:flex;justify-content:space-between;gap:10px"><h3 style="word-break:break-word">'+esc(d.name)+'</h3><button class="small" data-close>Закрыть</button></div>'+
+  (c.summary?'<p>'+esc(c.summary)+'</p>':'')+(c.questions&&c.questions.length?'<p class="muted">Вопросы: '+esc(c.questions.join('; '))+'</p>':'')+
+  '<div class="muted" style="margin-bottom:8px">Уверенность определения: '+Math.round((c.confidence||0)*100)+' %. Папка: <b>'+esc(docPath(d))+'</b></div>'+
+  (mm.length?'<div class="panel" style="padding:8px 12px;margin-bottom:10px"><b>Сверка</b><br>'+mm.map(esc).join('<br>')+'</div>':'')+
+  '<div class="row2"><label class="f">Тип<select id="dd-type">'+opts+'</select></label><label class="f">Контрагент<input type="text" id="dd-cp" value="'+esc(c.counterparty||'')+'"></label><label class="f">ИНН<input type="text" id="dd-inn" value="'+esc(c.inn||'')+'"></label><label class="f">Номер<input type="text" id="dd-no" value="'+esc(c.doc_no||'')+'"></label><label class="f">Дата<input type="date" id="dd-date" value="'+esc(c.doc_date||'')+'"></label><label class="f">Сумма, ₽<input type="number" id="dd-amt" value="'+(c.amount==null?'':c.amount)+'"></label></div>'+
+  '<div class="row2"><label class="f">Комиссионер (для отчётов)<select id="dd-comm">'+cms+'</select></label><label class="f">Период<input type="text" id="dd-per" value="'+esc(c.period||'')+'"></label><label class="f">Продано, шт.<input type="number" id="dd-qty" value="'+(c.qty==null?'':c.qty)+'"></label><label class="f">Продано, ₽<input type="number" id="dd-sold" value="'+(c.sold==null?'':c.sold)+'"></label><label class="f">Вознаграждение, ₽<input type="number" id="dd-fee" value="'+(c.fee==null?'':c.fee)+'"></label></div>'+
+  '<div style="display:flex;flex-wrap:wrap;gap:8px"><button class="primary" id="dd-save">Сохранить и разложить</button>'+(d.url?'<a class="btn" href="'+esc(d.url)+'" target="_blank" rel="noopener">Открыть файл</a>':'')+'<button id="dd-task">Создать задачу</button>'+(c.type==='comm_report'?'<button id="dd-rep"'+(d.repAdded?' disabled':'')+'>'+(d.repAdded?'Отчёт уже внесён':'Внести как отчёт комиссионера')+'</button>':'')+'<button class="danger" id="dd-del">Удалить</button></div>';
+  var L=$('#layer');L.querySelectorAll('[data-close]').forEach(function(b){b.addEventListener('click',closeLayer)});
+  function read(){var n=function(i){var v=$('#'+i).value;return v===''?null:+v};return{type:$('#dd-type').value,counterparty:$('#dd-cp').value.trim(),inn:$('#dd-inn').value.trim(),doc_no:$('#dd-no').value.trim(),doc_date:$('#dd-date').value,amount:n('dd-amt'),comm_id:$('#dd-comm').value,period:$('#dd-per').value.trim(),qty:n('dd-qty'),sold:n('dd-sold'),fee:n('dd-fee')}}
+  function merged(){return Object.assign({},c,read(),{confidence:Math.max(c.confidence||0,0.99)})}
+  $('#dd-save').addEventListener('click',function(){var nc=merged();var tmp=Object.assign({},d,{cls:nc});upDoc(id,{cls:nc,status:'filed',path:docPath(tmp)}).then(function(){toast('Документ разложен: '+docPath(tmp));closeLayer()},function(x){toast('Не удалось сохранить: '+(x&&x.message||x))})});
+  $('#dd-task').addEventListener('click',function(){var nc=read();addTask({title:'По документу «'+d.name+'»',note:nc.counterparty,who:'staff',doc:id,prio:'norm'}).then(function(){toast('Задача создана');location.hash='#zadachi';closeLayer()})});
+  var rb=$('#dd-rep');if(rb)rb.addEventListener('click',function(){
+    var nc=read(),cm=CM[nc.comm_id];if(!cm||!nc.period||!(nc.sold>0)){toast('Выберите комиссионера, период и сумму продаж');return}
+    var est=nc.fee==null,fee=est?Math.round(nc.sold*0.2):nc.fee;
+    db.collection('crep').doc(uid()).set({comm:nc.comm_id,period:nc.period,qty:nc.qty||0,sold:nc.sold,fee:fee,ts:nowIso(),src:'документ: '+d.name,recv:cm.kind==='in'?'we':(cm.model==='holds'?'they':'we'),est:est?1:0,doc:id}).then(function(){return upDoc(id,{repAdded:true,cls:merged(),status:'filed'})}).then(function(){TASKS.filter(function(t){return t.auto===id+':rep'&&t.status!=='done'}).forEach(function(t){db.collection('tasks').doc(t.id).update({status:'done',done_ts:nowIso()})});toast('Отчёт внесён в расчёты комиссионера');closeLayer()},function(x){toast('Не удалось записать: '+(x&&x.message||x))})});
+  $('#dd-del').addEventListener('click',function(){var b=$('#dd-del');if(!b.dataset.sure){b.dataset.sure='1';b.textContent='Точно удалить?';return}
+    var p=d.asset&&AS?AS.delete(d.asset).catch(function(){}):Promise.resolve();p.then(function(){return db.collection('docs').doc(id).delete()}).then(function(){toast('Документ удалён');closeLayer()},function(x){toast('Не удалось удалить: '+(x&&x.message||x))})});
+}
+document.addEventListener('click',function(e){
+  var t=e.target,q=function(s){return t.closest&&t.closest(s)};
+  var a=q('[data-opendoc]');if(a){e.preventDefault();openDoc(a.dataset.opendoc);return}
+  var r=q('tr[data-doc]');if(r&&!$('.drawer')){openDoc(r.dataset.doc);return}
+  var b;
+  if((b=q('[data-tfw]'))){TS.who=b.dataset.tfw;render();return}
+  if((b=q('[data-tfs]'))){TS.st=b.dataset.tfs;render();return}
+  if((b=q('[data-df]'))){DF=b.dataset.df;render();return}
+  if((b=q('[data-twho]'))){var tk=TASKS.filter(function(x){return x.id===b.dataset.twho})[0];if(tk)db.collection('tasks').doc(tk.id).update({who:tk.who==='owner'?'staff':'owner'});return}
+  if((b=q('[data-tdel]'))){if(b.dataset.sure){db.collection('tasks').doc(b.dataset.tdel).delete();return}b.dataset.sure='1';b.textContent='ok?';setTimeout(function(){if(b){b.dataset.sure='';b.textContent='×'}},3500);return}
+  if(t.id==='t-add'){var ti=$('#t-title').value.trim();if(!ti){toast('Напишите, что нужно сделать');return}
+    addTask({title:ti,who:$('#t-who').value,due:$('#t-due').value,prio:$('#t-prio').value,note:$('#t-note').value.trim()}).then(function(){['t-title','t-due','t-note'].forEach(function(i){$('#'+i).value=''});toast('Задача добавлена')},function(x){toast('Не удалось записать: '+(x&&x.message||x))})}
+});
+document.addEventListener('change',function(e){
+  var t=e.target;
+  if(t.dataset&&t.dataset.tdone){db.collection('tasks').doc(t.dataset.tdone).update(t.checked?{status:'done',done_ts:nowIso()}:{status:'open',done_ts:{__delete__:true}});return}
+  if(t.dataset&&t.dataset.tdue){db.collection('tasks').doc(t.dataset.tdue).update({due:t.value});return}
+  if(t.id==='d-file'){ingestAll(t.files);t.value=''}
+});
+['dragover','dragenter'].forEach(function(ev){document.addEventListener(ev,function(e){if(e.target.closest&&e.target.closest('#dz')){e.preventDefault();$('#dz').classList.add('on')}})});
+document.addEventListener('dragleave',function(e){var z=$('#dz');if(z&&e.target===z)z.classList.remove('on')});
+document.addEventListener('drop',function(e){if(e.target.closest&&e.target.closest('#dz')){e.preventDefault();$('#dz').classList.remove('on');ingestAll(e.dataTransfer.files)}});
+
+/* ---------- заявки в МойСклад (черновики документов) ---------- */
+var MSQ={},MSL={skl:1,lbt:1,nb:1,tk:1};
+function msKind(m){
+  var L=m.lines||[];if(!L.length)return null;
+  for(var i=0;i<L.length;i++)if(!MSL[L[i][1]])return null;
+  if(m.type==='writeoff'){var l0=L[0][1];return L.every(function(l){return l[2]<0&&l[1]===l0})?{kind:'loss',from:l0}:null}
+  if(m.type==='transfer'){var src=null,dst=null;
+    for(var j=0;j<L.length;j++){var l=L[j];if(l[2]<0){if(src&&src!==l[1])return null;src=l[1]}else if(l[2]>0){if(dst&&dst!==l[1])return null;dst=l[1]}}
+    return src&&dst&&src!==dst?{kind:'move',from:src,to:dst}:null}
+  return null;
+}
+function msqCell(m){
+  var k=msKind(m);if(!k)return'<span class="muted">—</span>';var q=MSQ[m.id];
+  if(!q||q.status==='error')return(q?'<span class="tag bad" title="'+esc(q.error||'')+'">ошибка</span> ':'')+'<button class="small" data-msq="'+esc(m.id)+'">'+(q?'Повторить':'В МойСклад')+'</button>';
+  if(q.status==='requested')return'<span class="tag warn">ждёт отправки</span> <button class="small" data-msqx="'+esc(m.id)+'" title="Отменить заявку" aria-label="Отменить заявку">×</button>';
+  return'<span class="tag good" title="Документ создан непроведённым, проведите его в МойСклад">черновик '+esc(q.docName||'')+'</span>';
+}
+function openMsq(id){
+  var m=MV.filter(function(x){return x.id===id})[0];if(!m)return;var k=msKind(m);if(!k){toast('Эту операцию в МойСклад отправить нельзя');return}
+  var rows=(m.lines||[]).filter(function(l){return k.kind==='move'?l[2]>0:l[2]<0}).map(function(l){var it=IDX[l[0]]||{};return{id:l[0],q:Math.abs(l[2]),n:it.n||l[0],c:it.c||'',a:it.a||''}});
+  var title=k.kind==='move'?'Перемещение: '+LN[k.from]+' → '+LN[k.to]:'Списание со склада: '+LN[k.from];
+  closeLayer();
+  $('#layer').innerHTML='<div class="shade" data-close></div><div class="modal"><div class="box" role="dialog" aria-label="Заявка в МойСклад"><h3>Создать документ в МойСклад</h3>'+
+    '<p><b>'+esc(title)+'</b>'+(m.ref?'<br><span class="muted">'+esc(m.ref)+'</span>':'')+'</p>'+
+    '<div class="scroll" style="max-height:34vh;min-height:0"><table class="mini"><thead><tr><th>Позиция</th><th class="r">Шт.</th></tr></thead><tbody>'+rows.map(function(r){return'<tr><td>'+esc(r.n)+'</td><td class="r">'+r.q+'</td></tr>'}).join('')+'</tbody></table></div>'+
+    '<p class="muted" style="margin-top:10px">Документ появится в МойСклад <b>черновиком, непроведённым</b>: остатки в МойСклад и на сайте не изменятся, пока вы его не проведёте. Отправка идёт при ближайшем обновлении (утром) или по команде «отправь в МойСклад».</p>'+
+    '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button data-close>Отмена</button><button class="primary" id="mq-ok">Создать черновик</button></div></div></div>';
+  $('#layer').querySelectorAll('[data-close]').forEach(function(b){b.addEventListener('click',closeLayer)});
+  $('#mq-ok').addEventListener('click',function(){
+    $('#mq-ok').disabled=true;
+    db.collection('msq').doc(id).set({move:id,kind:k.kind,from:k.from,to:k.to||'',status:'requested',ts:nowIso(),ref:m.ref||'',note:m.note||'',title:title,lines:rows.map(function(r){return[r.id,r.q,r.n,r.c,r.a]})}).then(function(){toast('Заявка принята: черновик будет создан при ближайшем обновлении');closeLayer()},function(e){$('#mq-ok').disabled=false;toast('Не удалось записать: '+(e&&e.message||e))});
+  });
+}
+document.addEventListener('click',function(e){
+  var t=e.target,b;
+  if((b=t.closest&&t.closest('[data-msq]'))){openMsq(b.dataset.msq);return}
+  if((b=t.closest&&t.closest('[data-msqx]'))){db.collection('msq').doc(b.dataset.msqx).delete().then(function(){toast('Заявка отменена')});return}
+});
+
+/* ---------- отчёты точек из чата MAX ---------- */
+var RMX={},RFN={};
+function crMonth(r){var d=new Date(r.ts);if(/^по\s/.test(r.period))d.setUTCDate(0);return d.toISOString().slice(0,7)}
+function rmaxTable(id){
+  var map={};
+  Object.keys(RMX).forEach(function(k){var x=RMX[k];if(x.comm===id)map[x.ym]={ym:x.ym,sold:x.sold,fee:x.fee,pay:null,doc:x.src||'',formal:false}});
+  Object.keys(RFN).forEach(function(k){var x=RFN[k];if(x.comm===id)map[x.ym]={ym:x.ym,sold:x.sold,fee:x.fee,pay:x.pay,doc:x.doc||'',formal:true}});
+  var rows=Object.keys(map).map(function(k){return map[k]}).sort(function(p,q){return p.ym<q.ym?-1:1});
+  if(!rows.length)return'';
+  var nz=function(v){return v==null?'—':money(v)};
+  var t=rows.map(function(x){var cr=CR.filter(function(r){return r.comm===id&&crMonth(r)===x.ym})[0];var d=(cr&&x.sold!=null)?x.sold-cr.sold:null;
+    return'<tr title="'+esc(x.doc)+'"><td>'+esc(x.ym)+(x.formal?' <span class="tag good" title="Формальный отчёт или акт точки">отчёт</span>':'')+'</td><td class="r">'+nz(x.sold)+'</td><td class="r">'+nz(x.fee)+'</td><td class="r">'+nz(x.pay)+'</td><td class="r">'+(cr?money(cr.sold):'—')+'</td><td class="r" style="'+(d&&Math.abs(d)>=1?'color:var(--warn);font-weight:600':'')+'">'+(d==null?'—':(Math.abs(d)<1?'совпало':(d>0?'+':'')+money(d)))+'</td></tr>'}).join('');
+  return'<h3 style="font-size:16px;margin-top:16px">По отчётам точки (MAX и Telegram)</h3><p class="muted" style="margin:2px 0 6px">Итоги из файлов отчётов и актов. «К оплате» — продано минус комиссия точки. «Разница» — отчёт минус то, что в учёте (лист Мурашова). Наведите на строку, чтобы увидеть документ.</p><div class="scroll" style="max-height:300px"><table class="mini"><thead><tr><th>Период</th><th class="r">Продано, ₽</th><th class="r">Вознагр., ₽</th><th class="r">К оплате, ₽</th><th class="r">В учёте, ₽</th><th class="r">Разница</th></tr></thead><tbody>'+t+'</tbody></table></div>';
+}
+/* ---------- договор и факт ---------- */
+function sg(n){return(n>0?'+':'')+money(n)}
+function factCell(c){var f=c.fact;if(!f||f.owe==null)return'<span class="muted">нет отчётов</span>';var s=sg(f.owe);if(f.oweMax&&f.oweMax>f.owe)s+='…'+sg(f.oweMax);return'<span style="color:'+(f.owe>0?'var(--bad)':'var(--warn)')+';font-weight:600">'+s+'</span>'}
+function tcell(c,k){var f=c.fact;if(!f)return'—';var q=f['t'+k+'Q']!=null?f['t'+k+'Q']:f[k.toLowerCase()+'Q'],r=f['t'+k+'R']!=null?f['t'+k+'R']:f[k.toLowerCase()+'R'];if(r==null&&q==null)return'<span class="muted">нет данных</span>';return money(r||0)+'<div class="code">'+(q==null?'':nf.format(q)+' шт.')+(f.kits&&k!=='Sent'||f.kits&&k==='Sent'?' · с констр.':'')+'</div>'}
+var RESID=['omc','lbt','nu','tk','nb'];
+function tsum(ids,k){var q=0,r=0;ids.forEach(function(id){var c=CM[id],f=c&&c.fact;if(f){q+=f['t'+k+'Q']||0;r+=f['t'+k+'R']||0}});return{q:q,r:r}}
+function totRow(label,ids){var s=tsum(ids,'Sent'),o=tsum(ids,'Sold'),l=tsum(ids,'Left');var cell=function(x){return'<td class="tot"><b>'+money(x.r)+'</b><div class="code">'+nf.format(x.q)+' шт.</div></td>'};return'<tr style="background:var(--bg2,#f4f4f4)"><td class="name"><b>'+label+'</b></td><td></td>'+cell(s)+cell(o)+cell(l)+'<td colspan="7"></td></tr>'}
+function factBlock(c){
+  var f=c.fact;if(!f)return'';var n=function(v){return v==null?'—':money(v)};
+  var rows=[['По договору: передать товара на',n(f.specSum)+(f.specSum?' ₽':'')],['По договору: вознаграждение точки',n(f.specFee)+(f.specFee?' ₽':'')],['Срок и порядок оплаты',esc(f.term||'—')],
+    ['Передано всего',f.tSentR==null&&f.sentR==null?'—':money(f.tSentR!=null?f.tSentR:f.sentR)+' ₽ · '+nf.format(f.tSentQ!=null?f.tSentQ:(f.sentQ||0))+' шт.'],['Продано всего',f.tSoldR==null&&f.soldR==null?'—':money(f.tSoldR!=null?f.tSoldR:f.soldR)+' ₽ · '+(f.tSoldQ!=null||f.soldQ!=null?nf.format(f.tSoldQ!=null?f.tSoldQ:f.soldQ)+' шт.':'')],['Остаток всего',f.tLeftR==null&&f.leftR==null?'—':money(f.tLeftR!=null?f.tLeftR:f.leftR)+' ₽ · '+nf.format(f.tLeftQ!=null?f.tLeftQ:(f.leftQ||0))+' шт.'],['Передано по факту (лист)',f.sentQ==null?'—':nf.format(f.sentQ)+' шт. на '+money(f.sentR)+' ₽'],['Продано (документ точки, где есть, иначе лист)',n(f.bestSold)+' ₽ <span class="muted">(по листу '+n(f.sheetSold)+' ₽, месяцев по документам: '+(f.docMonths||0)+')</span>'],
+    ['Вознаграждение точки',n(f.bestFee)+' ₽'],['Остаток у точки',f.leftQ==null?'—':nf.format(f.leftQ)+' шт. на '+money(f.leftR)+' ₽ по цене'],['Получено от точки',n(f.recv)+' ₽'],['Выплачено точке',n(f.paid)+' ₽'],
+    ['Итог',f.owe==null?'<span class="muted">расчёт невозможен</span>':(f.owe>0?'<b style="color:var(--bad)">должен нам '+money(f.owe)+(f.oweMax&&f.oweMax>f.owe?' … '+money(f.oweMax):'')+' ₽</b>':'<b style="color:var(--warn)">мы должны '+money(-f.owe)+' ₽</b>')]];
+  return'<h3 style="font-size:16px;margin-top:16px">Договор и факт</h3><dl class="kv">'+rows.map(function(r){return'<dt>'+r[0]+'</dt><dd>'+r[1]+'</dd>'}).join('')+'</dl>'+(f.kits?'<p class="muted"><b>Конструкторы:</b> передано '+f.kits.q+' шт. на '+money(f.kits.r)+' ₽, продано '+f.kits.soldQ+' шт. на '+money(f.kits.soldR)+' ₽, остаток '+f.kits.leftQ+' шт. на '+money(f.kits.leftR)+' ₽. '+esc(f.kits.note||'')+'</p>':'')+(f.note?'<p class="muted">'+esc(f.note)+'</p>':'')+(f.note2?'<p class="muted">'+esc(f.note2)+'</p>':'');
+}
+/* ---------- подключение к базе ---------- */
+function snap(q,fn){q.onSnapshot(function(s){fn(s);recompute();render()},function(e){toast('Нет доступа к данным: '+(e&&e.message||e))})}
+render();
+window.claude.use('assets').then(function(a){AS=a||null;if(st.tab==='dokumenty')render()},function(){});
+window.claude.use('sample').then(function(s){SMP=s||null;if(st.tab==='dokumenty')render()},function(){});
+window.claude.use('db').then(function(d){
+  db=d;
+  if(!db){$('#view').innerHTML='<div class="panel"><div class="empty">Данные доступны после входа.</div></div>';return}
+  snap(db.collection('base'),function(s){G={};s.docs.forEach(function(x){G[x.id]=x.data()})});
+  snap(db.collection('cnt'),function(s){C={};s.docs.forEach(function(x){C[x.id]=x.data()})});
+  snap(db.collection('moves').orderBy('ts','desc').limit(1000),function(s){MV=s.docs.map(function(x){var o=Object.assign({},x.data());o.id=x.id;return o})});
+  snap(db.collection('comm'),function(x){CM={};x.docs.forEach(function(d){var o=Object.assign({},d.data());o.id=d.id;CM[d.id]=o})});
+  snap(db.collection('crep').limit(1000),function(x){CR=x.docs.map(function(d){var o=Object.assign({},d.data());o.id=d.id;return o})});
+  snap(db.collection('docs').limit(500),function(x){DOCS=x.docs.map(function(d){var o=Object.assign({},d.data());o.id=d.id;return o})});
+  snap(db.collection('tasks').limit(500),function(x){TASKS=x.docs.map(function(d){var o=Object.assign({},d.data());o.id=d.id;return o})});
+  snap(db.collection('msq'),function(x){MSQ={};x.docs.forEach(function(d){MSQ[d.id]=d.data()})});
+  snap(db.collection('rfin'),function(x){RFN={};x.docs.forEach(function(d){RFN[d.id]=d.data()})});
+  snap(db.collection('rmax'),function(x){RMX={};x.docs.forEach(function(d){RMX[d.id]=d.data()})});
+  snap(db.collection('cpos'),function(x){POS={};x.docs.forEach(function(d){POS[d.id]=d.data()})});
+  snap(db.collection('cdeal'),function(x){DEAL={};x.docs.forEach(function(d){DEAL[d.id]=d.data()})});
+  snap(db.collection('cpay').limit(1000),function(x){CP=x.docs.map(function(d){var o=Object.assign({},d.data());o.id=d.id;return o})});
+  db.doc('ref/meta').onSnapshot(function(s){META=(s.exists&&s.data())||META},function(){});
+  route();
+});
+route();
+})();
+</script>
+
+</body></html>
