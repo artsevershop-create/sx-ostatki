@@ -121,7 +121,7 @@ td.r,th.r{text-align:right}
       <button id="b-csv">Скачать CSV</button>
     </div>
   </header>
-  <nav class="tabs" aria-label="Разделы"><a href="#ostatki" data-t="ostatki">Остатки</a><a href="#zhurnal" data-t="zhurnal">Журнал операций</a><a href="#komissionery" data-t="komissionery">Комиссионеры</a><a href="#dokumenty" data-t="dokumenty">Документы</a><a href="#zadachi" data-t="zadachi">Задачи</a><a href="#istochniki" data-t="istochniki">Источники данных</a></nav>
+  <nav class="tabs" aria-label="Разделы"><a href="#ostatki" data-t="ostatki">Остатки</a><a href="#zhurnal" data-t="zhurnal">Журнал операций</a><a href="#komissionery" data-t="komissionery">Комиссионеры</a><a href="#dokumenty" data-t="dokumenty">Документы</a><a href="#zadachi" data-t="zadachi">Задачи</a><a href="#pravki" data-t="pravki" id="tab-pravki" style="display:none">Журнал правок</a><a href="#istochniki" data-t="istochniki">Источники данных</a></nav>
   <div id="view"></div>
 </div>
 <div id="layer"></div>
@@ -254,13 +254,13 @@ function render(){
   var v=$('#view');
   var keep={};if(st.tab==='zadachi'||st.tab==='dokumenty')document.querySelectorAll('#view [id]').forEach(function(e){if((e.tagName==='INPUT'&&e.type!=='file'&&e.type!=='checkbox')||e.tagName==='SELECT'||e.tagName==='TEXTAREA')keep[e.id]=e.value});
   var sc=$('#view .scroll');var top=sc?sc.scrollTop:0,left=sc?sc.scrollLeft:0;
-  v.innerHTML=st.tab==='zhurnal'?renderJournal():st.tab==='komissionery'?renderComm():st.tab==='istochniki'?renderSources():st.tab==='dokumenty'?renderDocs():st.tab==='zadachi'?renderTasks():renderStock();
+  v.innerHTML=st.tab==='zhurnal'?renderJournal():st.tab==='komissionery'?renderComm():st.tab==='istochniki'?renderSources():st.tab==='dokumenty'?renderDocs():st.tab==='zadachi'?renderTasks():st.tab==='pravki'?renderPravki():renderStock();
   Object.keys(keep).forEach(function(id){var e=$('#'+id);if(e&&e.value!==keep[id])e.value=keep[id]});
   var n=$('#f-n');if(n&&st.tab==='ostatki')n.textContent='Показано '+visible().length+' из '+ITEMS.length;
   var sc2=$('#view .scroll');if(sc2){sc2.scrollTop=top;sc2.scrollLeft=left}
   if(keepQ){var q=$('#f-q');if(q){q.focus();q.setSelectionRange(q.value.length,q.value.length)}}
 }
-function route(){var h=(location.hash||'').replace('#','');st.tab=({ostatki:1,zhurnal:1,komissionery:1,istochniki:1,dokumenty:1,zadachi:1})[h]?h:'ostatki';render()}
+function route(){var h=(location.hash||'').replace('#','');st.tab=({ostatki:1,zhurnal:1,komissionery:1,istochniki:1,dokumenty:1,zadachi:1,pravki:1})[h]?h:'ostatki';render()}
 window.addEventListener('hashchange',route);
 
 document.addEventListener('input',function(e){if(e.target.id==='f-q'){st.q=e.target.value;render()}});
@@ -819,6 +819,25 @@ function factBlock(c){
     ['Итог',f.owe==null?'<span class="muted">расчёт невозможен</span>':(f.owe>0?'<b style="color:var(--bad)">должен нам '+money(f.owe)+(f.oweMax&&f.oweMax>f.owe?' … '+money(f.oweMax):'')+' ₽</b>':'<b style="color:var(--warn)">мы должны '+money(-f.owe)+' ₽</b>')]];
   return'<h3 style="font-size:16px;margin-top:16px">Договор и факт</h3><dl class="kv">'+rows.map(function(r){return'<dt>'+r[0]+'</dt><dd>'+r[1]+'</dd>'}).join('')+'</dl>'+(f.kits?'<p class="muted"><b>Конструкторы:</b> передано '+f.kits.q+' шт. на '+money(f.kits.r)+' ₽, продано '+f.kits.soldQ+' шт. на '+money(f.kits.soldR)+' ₽, остаток '+f.kits.leftQ+' шт. на '+money(f.kits.leftR)+' ₽. '+esc(f.kits.note||'')+'</p>':'')+(f.note?'<p class="muted">'+esc(f.note)+'</p>':'')+(f.note2?'<p class="muted">'+esc(f.note2)+'</p>':'');
 }
+/* ---------- журнал правок (владелец) ---------- */
+var PV={who:'all'};
+var CNAME={base:'Остатки (база)',cnt:'Факт остатков',moves:'Операции',comm:'Комиссионеры',crep:'Отчёты комиссионеров',cpay:'Платежи',cpos:'Позиции точек',cdeal:'Сделки',docs:'Документы',tasks:'Задачи',msq:'Заявки в МойСклад',rmax:'Отчёты точек',rfin:'Отчёты точек',ref:'Справочник'};
+var OPN={insert:'создано',update:'изменено',delete:'удалено'};
+function pvDetail(r){var s='<div>'+esc(r.title||r.doc_id)+'</div>';if(r.diff&&r.diff.length){var k=r.diff.slice(0,3).map(function(x){return esc(x.path)+': '+esc(x.old||'—')+' → '+esc(x.new||'—')}).join('<br>');if(r.n>3)k+='<br>…и ещё '+(r.n-3);s+='<div class="muted" style="font-size:12.5px">'+k+'</div>'}return s}
+function pvLoad(){
+  var box=$('#pv-box');if(!box)return;
+  if(!window.CRM_LOG){box.innerHTML='<div class="empty">Журнал правок доступен владельцу в версии crm.северныймерч.рф.</div>';return}
+  window.CRM_LOG(500).then(function(rows){
+    if(st.tab!=='pravki'||!$('#pv-box'))return;
+    var actors=[];rows.forEach(function(r){if(actors.indexOf(r.actor)<0)actors.push(r.actor)});
+    var list=rows.filter(function(r){return PV.who==='all'||r.actor===PV.who});
+    var chips='<button class="small'+(PV.who==='all'?' primary':'')+'" data-pvf="all">Все</button>'+actors.map(function(a){return'<button class="small'+(PV.who===a?' primary':'')+'" data-pvf="'+esc(a)+'">'+esc(a)+'</button>'}).join('')+'<button class="small" data-pvr="1" style="margin-left:auto">Обновить</button>';
+    var body=list.map(function(r){return'<tr class="item"><td style="white-space:nowrap">'+esc(new Date(r.ts).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}))+'</td><td>'+esc(r.actor||'—')+'</td><td>'+esc(CNAME[r.coll]||r.coll)+'</td><td>'+esc(OPN[r.op]||r.op)+'</td><td>'+pvDetail(r)+'</td></tr>'}).join('')||'<tr><td colspan="5" class="muted" style="padding:24px;text-align:center">Правок пока нет.</td></tr>';
+    box.outerHTML='<div id="pv-box"><div class="filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'+chips+'</div><div class="panel"><div class="scroll" style="max-height:none;min-height:0"><table><thead><tr><th>Когда</th><th>Кто</th><th>Раздел</th><th>Что</th><th>Запись и изменения</th></tr></thead><tbody>'+body+'</tbody></table></div></div><p class="muted" style="font-size:12.5px">Показаны последние 500 правок. «автообновление» и «система» — записи скрипта обновления и служебные правки.</p></div>'
+  },function(e){var b=$('#pv-box');if(b)b.innerHTML='<div class="empty">Не удалось прочитать журнал: '+esc(e&&e.message||e)+'</div>'});
+}
+function renderPravki(){setTimeout(pvLoad,0);return'<div id="pv-box" class="panel" style="padding:16px">Загрузка…</div>'}
+document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-pvf],[data-pvr]');if(!b)return;if(b.dataset.pvf!==undefined)PV.who=b.dataset.pvf;var cur=$('#pv-box');if(cur)cur.outerHTML='<div id="pv-box" class="panel" style="padding:16px">Загрузка…</div>';pvLoad()});
 /* ---------- подключение к базе ---------- */
 function snap(q,fn){q.onSnapshot(function(s){fn(s);recompute();render()},function(e){toast('Нет доступа к данным: '+(e&&e.message||e))})}
 render();

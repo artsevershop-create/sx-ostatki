@@ -7,6 +7,7 @@
   var ROLE = null, EMAIL = '', resolveReady;
   var ready = new Promise(function (r) { resolveReady = r; });
   window.CRM_ROLE = function () { return ROLE; };
+  window.CRM_LOG = function (n) { return sb.from('crm_log').select('*').order('id', { ascending: false }).limit(n || 300).then(function (r) { if (r.error) throw new Error(r.error.message); return r.data; }); };
   function el(html) { var d = document.createElement('div'); d.innerHTML = html; return d.firstChild; }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
@@ -60,6 +61,7 @@
       s.textContent = HIDDEN_FOR_MANAGER.map(function (t) { return '.tabs a[data-t="' + t + '"]{display:none!important}'; }).join('');
       document.head.appendChild(s);
     }
+    var tp = document.getElementById('tab-pravki'); if (tp && ROLE === 'owner') tp.style.display = '';
     var wrap = document.querySelector('.wrap');
     if (wrap && !document.querySelector('.crm-user')) {
       var u = el('<div class="crm-user"><span>' + esc(EMAIL) + ' · ' + (ROLE === 'owner' ? 'владелец' : 'менеджер') + '</span>' +
