@@ -625,14 +625,14 @@ function renderDocs(){
   if(!AS)h+='<div class="panel" style="padding:10px 14px;border-color:var(--warn)"><b>Файлы не сохраняются.</b> Загрузка доступна редактору страницы и участникам с правом «Contributor». Распознавание работает и без сохранения.</div>';
   if(!SMP)h+='<div class="panel" style="padding:10px 14px;margin-top:8px;border-color:var(--warn)"><b>Автоопределение выключено.</b> Автоматический разбор работает только в версии на claude.ai. Здесь документы раскладываются вручную.</div>';
   var rev=DOCS.filter(function(d){return d.status==='review'||d.status==='error'}).length,fl=DOCS.filter(function(d){return d.status==='filed'}).length;
-  var list=DOCS.filter(function(d){return DF==='all'||(DF==='review'?(d.status==='review'||d.status==='error'||d.status==='work'):d.status==='filed')}).sort(function(a,b){return a.ts<b.ts?1:-1});
+  var list=DOCS.filter(function(d){return DF==='all'||(DF==='file'?!!(d.asset||d.url):DF==='nofile'?!(d.asset||d.url):DF==='review'?(d.status==='review'||d.status==='error'||d.status==='work'):d.status==='filed')}).sort(function(a,b){return a.ts<b.ts?1:-1});
   var rows=list.map(function(d){
     var c=d.cls||{},st=d.status==='filed'?'<span class="tag good">разложен</span>':d.status==='work'?'<span class="tag">'+esc(d.step||'в работе')+'…</span>':d.status==='error'?'<span class="tag bad">не прочитан</span>':'<span class="tag warn">проверить</span>';
     var mm=d.status==='work'?[]:matchDoc(d);
-    return'<tr class="item" data-doc="'+esc(d.id)+'" style="cursor:pointer"><td class="name"><div>'+esc(d.name)+'</div><div class="code">'+esc(c.summary||'')+'</div></td><td>'+esc(DT[c.type]||'—')+'</td><td>'+esc(c.counterparty||'—')+'</td><td>'+esc((c.doc_no?'№ '+c.doc_no:'')+(c.doc_date?' от '+dmy2(c.doc_date):'')||'—')+'</td><td class="tot">'+(c.amount>0?money(c.amount)+' ₽':'—')+'</td><td class="muted" style="font-size:12.5px">'+(d.status==='work'?'':esc(docPath(d)))+'</td><td style="font-size:12.5px">'+(mm.length?esc(mm.join('; ')):'<span class="muted">нет совпадений</span>')+'</td><td>'+st+'</td></tr>'}).join('')||'<tr><td colspan="8" class="muted" style="padding:24px;text-align:center">Документов пока нет. Перетащите файлы в рамку выше.</td></tr>';
+    return'<tr class="item" data-doc="'+esc(d.id)+'" style="cursor:pointer"><td class="name"><div>'+((d.asset||d.url)?'📎 ':'')+esc(d.name)+'</div><div class="code">'+esc(c.summary||'')+'</div></td><td>'+esc(DT[c.type]||'—')+'</td><td>'+esc(c.counterparty||'—')+'</td><td>'+esc((c.doc_no?'№ '+c.doc_no:'')+(c.doc_date?' от '+dmy2(c.doc_date):'')||'—')+'</td><td class="tot">'+(c.amount>0?money(c.amount)+' ₽':'—')+'</td><td class="muted" style="font-size:12.5px">'+(d.status==='work'?'':esc(docPath(d)))+'</td><td style="font-size:12.5px">'+(mm.length?esc(mm.join('; ')):'<span class="muted">нет совпадений</span>')+'</td><td>'+st+'</td></tr>'}).join('')||'<tr><td colspan="8" class="muted" style="padding:24px;text-align:center">Документов пока нет. Перетащите файлы в рамку выше.</td></tr>';
   return h+'<label class="drop" id="dz" style="margin-top:8px"><b>Перетащите документы сюда</b> или выберите файлы<div class="muted" style="font-size:12.5px">PDF, Word (.docx), Excel, фото и сканы. Тип, контрагент, номер, сумма и папка определяются сами. Чтобы файл попал в папку на диске, скажите мне «разбери входящие».</div><input type="file" id="d-file" multiple accept=".pdf,.docx,.xlsx,.xls,.csv,.txt,.jpg,.jpeg,.png,.webp"></label>'+
   '<section class="tiles" style="margin-top:10px">'+tile('Документов',nf.format(DOCS.length),'загружено')+tile('Разложено',nf.format(fl),'уверенно определены',fl?'':'')+tile('Проверить',nf.format(rev),'нужен ваш взгляд',rev?'warn':'')+'</section>'+
-  '<div class="filters" style="margin:8px 0">'+[['all','Все'],['review','Проверить'],['filed','Разложены']].map(function(o){return'<button class="small'+(DF===o[0]?' primary':'')+'" data-df="'+o[0]+'">'+o[1]+'</button>'}).join('')+'</div>'+
+  '<div class="filters" style="margin:8px 0">'+[['all','Все'],['review','Проверить'],['filed','Разложены'],['file','С файлом'],['nofile','Без файла']].map(function(o){return'<button class="small'+(DF===o[0]?' primary':'')+'" data-df="'+o[0]+'">'+o[1]+'</button>'}).join('')+(window.CRM_ROLE&&window.CRM_ROLE()==='owner'?'<button class="small" id="d-attach" style="margin-left:auto">Привязать файлы</button>':'')+'</div>'+
   '<div class="panel"><div class="scroll" style="max-height:none;min-height:0"><table><thead><tr><th class="name">Файл</th><th>Тип</th><th>Контрагент</th><th>№ и дата</th><th class="r">Сумма</th><th>Папка</th><th>Сверка</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
 }
 function upDoc(id,o){return db.collection('docs').doc(id).update(o)}
@@ -714,11 +714,12 @@ function openDoc(id){
   (mm.length?'<div class="panel" style="padding:8px 12px;margin-bottom:10px"><b>Сверка</b><br>'+mm.map(esc).join('<br>')+'</div>':'')+
   '<div class="row2"><label class="f">Тип<select id="dd-type">'+opts+'</select></label><label class="f">Контрагент<input type="text" id="dd-cp" value="'+esc(c.counterparty||'')+'"></label><label class="f">ИНН<input type="text" id="dd-inn" value="'+esc(c.inn||'')+'"></label><label class="f">Номер<input type="text" id="dd-no" value="'+esc(c.doc_no||'')+'"></label><label class="f">Дата<input type="date" id="dd-date" value="'+esc(c.doc_date||'')+'"></label><label class="f">Сумма, ₽<input type="number" id="dd-amt" value="'+(c.amount==null?'':c.amount)+'"></label></div>'+
   '<div class="row2"><label class="f">Комиссионер (для отчётов)<select id="dd-comm">'+cms+'</select></label><label class="f">Период<input type="text" id="dd-per" value="'+esc(c.period||'')+'"></label><label class="f">Продано, шт.<input type="number" id="dd-qty" value="'+(c.qty==null?'':c.qty)+'"></label><label class="f">Продано, ₽<input type="number" id="dd-sold" value="'+(c.sold==null?'':c.sold)+'"></label><label class="f">Вознаграждение, ₽<input type="number" id="dd-fee" value="'+(c.fee==null?'':c.fee)+'"></label></div>'+
-  '<div style="display:flex;flex-wrap:wrap;gap:8px"><button class="primary" id="dd-save">Сохранить и разложить</button>'+(d.url?'<a class="btn" href="'+esc(d.url)+'" target="_blank" rel="noopener">Открыть файл</a>':'')+'<button id="dd-task">Создать задачу</button>'+(c.type==='comm_report'?'<button id="dd-rep"'+(d.repAdded?' disabled':'')+'>'+(d.repAdded?'Отчёт уже внесён':'Внести как отчёт комиссионера')+'</button>':'')+'<button class="danger" id="dd-del">Удалить</button></div>';
+  '<div style="display:flex;flex-wrap:wrap;gap:8px"><button class="primary" id="dd-save">Сохранить и разложить</button>'+((d.asset||d.url)?'<button id="dd-open">Открыть файл</button>':'')+'<button id="dd-task">Создать задачу</button>'+(c.type==='comm_report'?'<button id="dd-rep"'+(d.repAdded?' disabled':'')+'>'+(d.repAdded?'Отчёт уже внесён':'Внести как отчёт комиссионера')+'</button>':'')+'<button class="danger" id="dd-del">Удалить</button></div>';
   var L=$('#layer');L.querySelectorAll('[data-close]').forEach(function(b){b.addEventListener('click',closeLayer)});
   function read(){var n=function(i){var v=$('#'+i).value;return v===''?null:+v};return{type:$('#dd-type').value,counterparty:$('#dd-cp').value.trim(),inn:$('#dd-inn').value.trim(),doc_no:$('#dd-no').value.trim(),doc_date:$('#dd-date').value,amount:n('dd-amt'),comm_id:$('#dd-comm').value,period:$('#dd-per').value.trim(),qty:n('dd-qty'),sold:n('dd-sold'),fee:n('dd-fee')}}
   function merged(){return Object.assign({},c,read(),{confidence:Math.max(c.confidence||0,0.99)})}
   $('#dd-save').addEventListener('click',function(){var nc=merged();var tmp=Object.assign({},d,{cls:nc});upDoc(id,{cls:nc,status:'filed',path:docPath(tmp)}).then(function(){toast('Документ разложен: '+docPath(tmp));closeLayer()},function(x){toast('Не удалось сохранить: '+(x&&x.message||x))})});
+  var ob=$('#dd-open');if(ob)ob.addEventListener('click',function(){if(d.asset&&window.CRM_FILE_URL){var w=window.open('','_blank');window.CRM_FILE_URL(d.asset).then(function(u){w.location=u},function(e){w.close();toast('Не удалось открыть файл: '+(e&&e.message||e))})}else if(d.url)window.open(d.url,'_blank')});
   $('#dd-task').addEventListener('click',function(){var nc=read();addTask({title:'По документу «'+d.name+'»',note:nc.counterparty,who:'staff',doc:id,prio:'norm'}).then(function(){toast('Задача создана');location.hash='#zadachi';closeLayer()})});
   var rb=$('#dd-rep');if(rb)rb.addEventListener('click',function(){
     var nc=read(),cm=CM[nc.comm_id];if(!cm||!nc.period||!(nc.sold>0)){toast('Выберите комиссионера, период и сумму продаж');return}
@@ -838,6 +839,30 @@ function pvLoad(){
 }
 function renderPravki(){setTimeout(pvLoad,0);return'<div id="pv-box" class="panel" style="padding:16px">Загрузка…</div>'}
 document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-pvf],[data-pvr]');if(!b)return;if(b.dataset.pvf!==undefined)PV.who=b.dataset.pvf;var cur=$('#pv-box');if(cur)cur.outerHTML='<div id="pv-box" class="panel" style="padding:16px">Загрузка…</div>';pvLoad()});
+/* ---------- файлы документов ---------- */
+function hasFile(d){return!!(d.asset||d.url)}
+function attachFiles(){
+  if(!window.CRM_ROLE||window.CRM_ROLE()!=='owner'){toast('Привязывать файлы может только владелец');return}
+  window.claude.use('assets').then(function(A){
+    if(!A){toast('Загрузка файлов недоступна');return}
+    var inp=document.createElement('input');inp.type='file';inp.multiple=true;inp.setAttribute('webkitdirectory','');
+    inp.onchange=async function(){
+      var files=[].slice.call(inp.files);if(!files.length)return;
+      var by={};DOCS.forEach(function(d){if(hasFile(d))return;var b=(d.local||'').split('\\').pop()||d.name;if(b)(by[b]=by[b]||[]).push(d)});
+      var ok=0,miss=0,fail=0;
+      for(var i=0;i<files.length;i++){
+        var f=files[i],c=by[f.name];
+        if(!c||!c.length){miss++;continue}
+        var d=c.shift();
+        try{var up=await A.upload(f);await db.collection('docs').doc(d.id).update({asset:up.id,size:f.size});ok++}catch(e){fail++}
+        if((ok+fail)%10===0)toast('Привязано файлов: '+ok+' из '+files.length);
+      }
+      toast('Готово. Привязано: '+ok+(miss?', не нашлось в списке документов: '+miss:'')+(fail?', ошибок: '+fail:''));
+    };
+    inp.click();
+  });
+}
+document.addEventListener('click',function(e){if(e.target&&e.target.id==='d-attach')attachFiles()});
 /* ---------- подключение к базе ---------- */
 function snap(q,fn){q.onSnapshot(function(s){fn(s);recompute();render()},function(e){toast('Нет доступа к данным: '+(e&&e.message||e))})}
 render();

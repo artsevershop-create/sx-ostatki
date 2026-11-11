@@ -7,6 +7,7 @@
   var ROLE = null, EMAIL = '', resolveReady;
   var ready = new Promise(function (r) { resolveReady = r; });
   window.CRM_ROLE = function () { return ROLE; };
+  window.CRM_FILE_URL = function (path) { return sb.storage.from('crm-docs').createSignedUrl(path, 3600).then(function (r) { if (r.error) throw new Error(r.error.message); return r.data.signedUrl; }); };
   window.CRM_LOG = function (n) { return sb.from('crm_log').select('*').order('id', { ascending: false }).limit(n || 300).then(function (r) { if (r.error) throw new Error(r.error.message); return r.data; }); };
   function el(html) { var d = document.createElement('div'); d.innerHTML = html; return d.firstChild; }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
