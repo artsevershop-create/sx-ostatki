@@ -9,6 +9,17 @@
   window.CRM_ROLE = function () { return ROLE; };
   window.CRM_FILE_URL = function (path) { return sb.storage.from('crm-docs').createSignedUrl(path, 3600).then(function (r) { if (r.error) throw new Error(r.error.message); return r.data.signedUrl; }); };
   window.CRM_LOG = function (n) { return sb.from('crm_log').select('*').order('id', { ascending: false }).limit(n || 300).then(function (r) { if (r.error) throw new Error(r.error.message); return r.data; }); };
+  window.CRM_READY = ready;
+  // Бланки, подпись и печать, история договоров и КП: таблица crm_blanks, читает и пишет только владелец (RLS в Supabase).
+  window.CRM_BLANKS = {
+    get: function (kind, id) { return sb.from('crm_blanks').select('data').eq('kind', kind).eq('id', id).maybeSingle().then(function (r) { if (r.error) throw fail(r.error); return r.data ? r.data.data : null; }); },
+    list: function (kind, limit) { return sb.from('crm_blanks').select('id,data,updated_at').eq('kind', kind).order('updated_at', { ascending: false }).limit(limit || 100).then(function (r) { if (r.error) throw fail(r.error); return r.data; }); },
+    put: function (kind, id, data) { return sb.from('crm_blanks').upsert({ kind: kind, id: id, data: data, updated_at: new Date().toISOString(), updated_by: EMAIL }).then(function (r) { if (r.error) throw fail(r.error); }); },
+    fileUp: function (file) { var path = Date.now().toString(36) + '_' + String(file.name || 'file').replace(/[^w.-]+/g, '_'); return sb.storage.from('crm-contracts').upload(path, file, { contentType: file.type || 'application/octet-stream' }).then(function (r) { if (r.error) throw fail(r.error); return path; }); },
+    fileUrl: function (path) { return sb.storage.from('crm-contracts').createSignedUrl(path, 3600).then(function (r) { if (r.error) throw fail(r.error); return r.data.signedUrl; }); },
+    fileDel: function (path) { return sb.storage.from('crm-contracts').remove([path]).then(function (r) { if (r.error) throw fail(r.error); }); },
+    del: function (kind, id) { return sb.from('crm_blanks').delete().eq('kind', kind).eq('id', id).then(function (r) { if (r.error) throw fail(r.error); }); }
+  };
   function el(html) { var d = document.createElement('div'); d.innerHTML = html; return d.firstChild; }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
@@ -56,6 +67,25 @@
       });
     });
   }
+  function changePassword() {
+    var old = document.getElementById('crm-login'); if (old) old.remove();
+    document.body.appendChild(el('<div id="crm-login"><div class="box"><h1>Смена пароля</h1><p>' + esc(EMAIL) + '</p>' +
+      '<label>Новый пароль (не короче 8 символов)<input type="password" id="crm-pw1" autocomplete="new-password"></label>' +
+      '<label>Повторите пароль<input type="password" id="crm-pw2" autocomplete="new-password"></label>' +
+      '<div class="err" id="crm-pwerr"></div><button id="crm-pwok">Сохранить пароль</button><button id="crm-pwno" style="margin-top:8px;background:transparent;color:inherit;border:1px solid currentColor">Отмена</button></div></div>'));
+    var e = document.getElementById('crm-pwerr');
+    document.getElementById('crm-pwno').onclick = function () { document.getElementById('crm-login').remove(); };
+    document.getElementById('crm-pwok').onclick = function () {
+      var a = document.getElementById('crm-pw1').value, b = document.getElementById('crm-pw2').value;
+      if (a.length < 8) { e.textContent = 'Пароль короче 8 символов'; return; }
+      if (a !== b) { e.textContent = 'Пароли не совпадают'; return; }
+      sb.auth.updateUser({ password: a }).then(function (r) {
+        if (r.error) { e.textContent = 'Не удалось сменить: ' + r.error.message; return; }
+        document.getElementById('crm-login').remove(); alert('Пароль изменён. Входите с новым паролем.');
+      });
+    };
+    setTimeout(function () { var i = document.getElementById('crm-pw1'); if (i) i.focus(); }, 50);
+  }
   function decorate() {
     if (ROLE === 'manager') {
       var s = document.createElement('style');
@@ -66,10 +96,11 @@
     var wrap = document.querySelector('.wrap');
     if (wrap && !document.querySelector('.crm-user')) {
       var u = el('<div class="crm-user"><span>' + esc(EMAIL) + ' · ' + (ROLE === 'owner' ? 'владелец' : 'менеджер') + '</span>' +
-        (ROLE === 'owner' ? '<button id="crm-imp" title="Загрузить базу из файла">Импорт базы</button>' : '') + '<button id="crm-out">Выйти</button></div>');
+        (ROLE === 'owner' ? '<button id="crm-imp" title="Загрузить базу из файла">Импорт базы</button>' : '') + '<button id="crm-pwbtn" title="Сменить свой пароль">Пароль</button><button id="crm-out">Выйти</button></div>');
       wrap.insertBefore(u, wrap.firstChild);
       document.getElementById('crm-out').onclick = function () { sb.auth.signOut().then(function () { location.reload(); }); };
       var imp = document.getElementById('crm-imp'); if (imp) imp.onclick = importSeed;
+      document.getElementById('crm-pwbtn').onclick = changePassword;
     }
   }
 
