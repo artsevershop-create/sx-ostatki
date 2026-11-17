@@ -11,6 +11,12 @@
   window.CRM_LOG = function (n) { return sb.from('crm_log').select('*').order('id', { ascending: false }).limit(n || 300).then(function (r) { if (r.error) throw new Error(r.error.message); return r.data; }); };
   window.CRM_READY = ready;
   // Бланки, подпись и печать, история договоров и КП: таблица crm_blanks, читает и пишет только владелец (RLS в Supabase).
+  // Заявки амбассадоров с сайта: читают и правят владелец и менеджер (RLS в Supabase)
+  window.CRM_APPS = {
+    list: function () { return sb.from('amb_applications').select('*').order('created_at', { ascending: false }).limit(2000).then(function (r) { if (r.error) throw fail(r.error); return r.data; }); },
+    update: function (id, patch) { var p = Object.assign({}, patch, { handled_by: EMAIL, handled_at: new Date().toISOString() }); return sb.from('amb_applications').update(p).eq('id', id).select().single().then(function (r) { if (r.error) throw fail(r.error); return r.data; }); },
+    del: function (id) { return sb.from('amb_applications').delete().eq('id', id).then(function (r) { if (r.error) throw fail(r.error); }); }
+  };
   window.CRM_BLANKS = {
     get: function (kind, id) { return sb.from('crm_blanks').select('data').eq('kind', kind).eq('id', id).maybeSingle().then(function (r) { if (r.error) throw fail(r.error); return r.data ? r.data.data : null; }); },
     list: function (kind, limit) { return sb.from('crm_blanks').select('id,data,updated_at').eq('kind', kind).order('updated_at', { ascending: false }).limit(limit || 100).then(function (r) { if (r.error) throw fail(r.error); return r.data; }); },
