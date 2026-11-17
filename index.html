@@ -121,7 +121,7 @@ td.r,th.r{text-align:right}
       <button id="b-csv">Скачать CSV</button>
     </div>
   </header>
-  <nav class="tabs" aria-label="Разделы"><a href="#ostatki" data-t="ostatki">Остатки</a><a href="#zhurnal" data-t="zhurnal">Журнал операций</a><a href="#komissionery" data-t="komissionery">Комиссионеры</a><a href="#dokumenty" data-t="dokumenty">Документы</a><a href="#zadachi" data-t="zadachi">Задачи</a><a href="#pravki" data-t="pravki" id="tab-pravki" style="display:none">Журнал правок</a><a href="#istochniki" data-t="istochniki">Источники данных</a></nav>
+  <nav class="tabs" aria-label="Разделы"><a href="#ostatki" data-t="ostatki">Остатки</a><a href="#zhurnal" data-t="zhurnal">Журнал операций</a><a href="#prodazhi" data-t="prodazhi">Продажи</a><a href="#komissionery" data-t="komissionery">Комиссионеры</a><a href="#dokumenty" data-t="dokumenty">Документы</a><a href="#zadachi" data-t="zadachi">Задачи</a><a href="#pravki" data-t="pravki" id="tab-pravki" style="display:none">Журнал правок</a><a href="#istochniki" data-t="istochniki">Источники данных</a></nav>
   <div id="view"></div>
 </div>
 <div id="layer"></div>
@@ -254,13 +254,13 @@ function render(){
   var v=$('#view');
   var keep={};if(st.tab==='zadachi'||st.tab==='dokumenty')document.querySelectorAll('#view [id]').forEach(function(e){if((e.tagName==='INPUT'&&e.type!=='file'&&e.type!=='checkbox')||e.tagName==='SELECT'||e.tagName==='TEXTAREA')keep[e.id]=e.value});
   var sc=$('#view .scroll');var top=sc?sc.scrollTop:0,left=sc?sc.scrollLeft:0;
-  v.innerHTML=st.tab==='zhurnal'?renderJournal():st.tab==='komissionery'?renderComm():st.tab==='istochniki'?renderSources():st.tab==='dokumenty'?renderDocs():st.tab==='zadachi'?renderTasks():st.tab==='pravki'?renderPravki():renderStock();
+  v.innerHTML=st.tab==='zhurnal'?renderJournal():st.tab==='komissionery'?renderComm():st.tab==='istochniki'?renderSources():st.tab==='dokumenty'?renderDocs():st.tab==='zadachi'?renderTasks():st.tab==='prodazhi'?renderSales():st.tab==='pravki'?renderPravki():renderStock();
   Object.keys(keep).forEach(function(id){var e=$('#'+id);if(e&&e.value!==keep[id])e.value=keep[id]});
   var n=$('#f-n');if(n&&st.tab==='ostatki')n.textContent='Показано '+visible().length+' из '+ITEMS.length;
   var sc2=$('#view .scroll');if(sc2){sc2.scrollTop=top;sc2.scrollLeft=left}
   if(keepQ){var q=$('#f-q');if(q){q.focus();q.setSelectionRange(q.value.length,q.value.length)}}
 }
-function route(){var h=(location.hash||'').replace('#','');st.tab=({ostatki:1,zhurnal:1,komissionery:1,istochniki:1,dokumenty:1,zadachi:1,pravki:1})[h]?h:'ostatki';render()}
+function route(){var h=(location.hash||'').replace('#','');st.tab=({ostatki:1,zhurnal:1,prodazhi:1,komissionery:1,istochniki:1,dokumenty:1,zadachi:1,pravki:1})[h]?h:'ostatki';render()}
 window.addEventListener('hashchange',route);
 
 document.addEventListener('input',function(e){if(e.target.id==='f-q'){st.q=e.target.value;render()}});
@@ -508,6 +508,113 @@ function exportCsv(){
   });
 }
 
+
+/* ---------- отчёт по продажам ---------- */
+var RP={pre:'month',from:'',to:'',by:'month',ch:{site:1,kassa:1,dog:1,kom:1}};
+var RPM=['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
+function rpRange(){
+  var n=new Date(),y=n.getFullYear(),m=n.getMonth(),d=n.getDate(),p=RP.pre,a,b=new Date(y,m,d+1);
+  if(p==='week'){a=new Date(y,m,d-((n.getDay()+6)%7))}
+  else if(p==='month')a=new Date(y,m,1);
+  else if(p==='qtr')a=new Date(y,Math.floor(m/3)*3,1);
+  else if(p==='year')a=new Date(y,0,1);
+  else if(p==='30')a=new Date(y,m,d-29);
+  else if(p==='all')a=new Date(2020,0,1);
+  else{a=RP.from?new Date(RP.from+'T00:00:00'):new Date(2020,0,1);if(RP.to)b=new Date(new Date(RP.to+'T00:00:00').getTime()+864e5)}
+  return[a.getTime(),b.getTime()];
+}
+function rpKey(ms,by){
+  var d=new Date(ms),y=d.getFullYear(),m=d.getMonth(),dd=d.getDate();
+  if(by==='day')return y+'-'+pad(m+1)+'-'+pad(dd);
+  if(by==='week'){var w=new Date(y,m,dd-((d.getDay()+6)%7));return w.getFullYear()+'-'+pad(w.getMonth()+1)+'-'+pad(w.getDate())}
+  if(by==='qtr')return y+'-Q'+(Math.floor(m/3)+1);
+  if(by==='year')return''+y;
+  return y+'-'+pad(m+1);
+}
+function rpLabel(k,by){
+  if(by==='day')return dmy2(k);
+  if(by==='week'){var e=new Date(new Date(k+'T00:00:00').getTime()+6*864e5);return dmy2(k)+' – '+dmy2(e.getFullYear()+'-'+pad(e.getMonth()+1)+'-'+pad(e.getDate()))}
+  if(by==='qtr')return k.slice(5)+' кв. '+k.slice(0,4);
+  if(by==='year')return k+' год';
+  var mm=RPM[+k.slice(5)-1];return mm.charAt(0).toUpperCase()+mm.slice(1)+' '+k.slice(0,4);
+}
+function rpData(){
+  var r=rpRange(),rows={},items={},nodate=0,T={site:0,kassa:0,dog:0,kom:0,qty:0,cost:0,prof:0,fee:0,pq:0,ps:0};
+  function row(k){return rows[k]||(rows[k]={k:k,site:0,kassa:0,dog:0,kom:0,qty:0,fee:0})}
+  function inR(t){return t>=r[0]&&t<r[1]}
+  MV.forEach(function(m){
+    var ch=m.type==='sale_site'?'site':(m.type==='sale_evotor'||m.type==='sale_retail')?'kassa':null;
+    if(!ch||!RP.ch[ch])return;
+    var t=new Date(m.ts).getTime();if(!inR(t))return;
+    var rw=row(rpKey(t,RP.by));
+    (m.lines||[]).forEach(function(l){
+      if(!(l[2]<0))return;var it=IDX[l[0]];if(!it)return;
+      var q=-l[2],sm=q*(it.p||0),c=q*(it.k||0);
+      rw[ch]+=sm;rw.qty+=q;T[ch]+=sm;T.qty+=q;T.cost+=c;T.prof+=sm-c;T.pq+=q;T.ps+=sm;
+      var a=items[it.id]||(items[it.id]={n:it.n,q:0,s:0});a.q+=q;a.s+=sm;
+    });
+  });
+  if(RP.ch.dog)Object.keys(CTR).forEach(function(id){
+    var c=CTR[id];if(c.kind!=='Продажа'&&c.kind!=='По счёту')return;
+    if(!(c.paid>0))return;
+    if(!c.pd){nodate++;return}
+    var t=new Date(c.pd+'T12:00:00').getTime();if(!inR(t))return;
+    row(rpKey(t,RP.by)).dog+=c.paid;T.dog+=c.paid;
+  });
+  if(RP.ch.kom)CR.forEach(function(x){
+    if(!(x.sold>0)||!x.ts)return;
+    var t=new Date(x.ts).getTime();if(!inR(t))return;
+    var rw=row(rpKey(t,RP.by));rw.kom+=x.sold;rw.qty+=(x.qty||0);rw.fee+=(x.fee||0);T.kom+=x.sold;T.qty+=(x.qty||0);T.fee+=(x.fee||0);
+  });
+  var list=Object.keys(rows).sort().map(function(k){return rows[k]});
+  var top=Object.keys(items).map(function(k){return items[k]}).sort(function(a,b){return b.s-a.s}).slice(0,12);
+  return{list:list,top:top,T:T,nodate:nodate,r:r};
+}
+function renderSales(){
+  var D=rpData(),T=D.T,total=T.site+T.kassa+T.dog+T.kom;
+  var pre=[['week','Неделя'],['month','Месяц'],['qtr','Квартал'],['year','Год'],['30','30 дней'],['all','Всё время'],['custom','Свой период']];
+  var by=[['day','По дням'],['week','По неделям'],['month','По месяцам'],['qtr','По кварталам'],['year','По годам']];
+  var chs=[['site','Сайт'],['kassa','Касса'],['dog','Договоры'],['kom','Комиссионеры']];
+  var h='<div class="panel" style="padding:12px 14px;margin-bottom:10px"><div class="filters" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+
+    pre.map(function(o){return'<button class="small'+(RP.pre===o[0]?' primary':'')+'" data-rpp="'+o[0]+'">'+o[1]+'</button>'}).join('')+
+    (RP.pre==='custom'?'<label class="f" style="margin:0 0 0 6px">с <input type="date" id="rp-from" value="'+esc(RP.from)+'"></label><label class="f" style="margin:0">по <input type="date" id="rp-to" value="'+esc(RP.to)+'"></label>':'')+
+    '</div><div class="filters" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">'+
+    by.map(function(o){return'<button class="small'+(RP.by===o[0]?' primary':'')+'" data-rpb="'+o[0]+'">'+o[1]+'</button>'}).join('')+
+    '<span style="margin-left:10px" class="muted">Источники:</span>'+chs.map(function(o){return'<label style="display:inline-flex;gap:4px;align-items:center;margin-right:6px"><input type="checkbox" data-rpc="'+o[0]+'"'+(RP.ch[o[0]]?' checked':'')+'>'+o[1]+'</label>'}).join('')+
+    '<button class="small" id="rp-csv" style="margin-left:auto">Скачать CSV</button></div>'+
+    '<div class="muted" style="margin-top:6px;font-size:12.5px">Период: '+dmy2(rpKey(D.r[0],'day'))+' — '+dmy2(rpKey(D.r[1]-864e5,'day'))+'</div></div>';
+  h+='<section class="tiles">'+tile('Выручка',money(total)+' ₽','сайт, касса, договоры, комиссионеры')+tile('Сайт + касса',money(T.site+T.kassa)+' ₽',nf.format(T.pq)+' шт. по ценам каталога')+tile('Прибыль сайт + касса',money(T.prof)+' ₽','цена минус себестоимость МойСклад')+tile('Договоры',money(T.dog)+' ₽','поступления по дате оплаты')+tile('Комиссионеры',money(T.kom)+' ₽','оборот точек; их вознаграждение '+money(T.fee)+' ₽')+'</section>';
+  var th='<th>Период</th>'+(RP.ch.site?'<th class="r">Сайт</th>':'')+(RP.ch.kassa?'<th class="r">Касса</th>':'')+(RP.ch.dog?'<th class="r">Договоры</th>':'')+(RP.ch.kom?'<th class="r">Комиссионеры</th>':'')+'<th class="r">Итого</th><th class="r">Шт.</th>';
+  var body=D.list.map(function(x){var it=x.site+x.kassa+x.dog+x.kom;return'<tr><td>'+esc(rpLabel(x.k,RP.by))+'</td>'+(RP.ch.site?'<td class="tot">'+money(x.site)+'</td>':'')+(RP.ch.kassa?'<td class="tot">'+money(x.kassa)+'</td>':'')+(RP.ch.dog?'<td class="tot">'+money(x.dog)+'</td>':'')+(RP.ch.kom?'<td class="tot">'+money(x.kom)+'</td>':'')+'<td class="tot"><b>'+money(it)+'</b></td><td class="tot">'+nf.format(x.qty)+'</td></tr>'}).join('')||'<tr><td colspan="7" class="muted" style="padding:24px;text-align:center">За выбранный период продаж нет.</td></tr>';
+  var foot='<tr><td><b>Итого</b></td>'+(RP.ch.site?'<td class="tot"><b>'+money(T.site)+'</b></td>':'')+(RP.ch.kassa?'<td class="tot"><b>'+money(T.kassa)+'</b></td>':'')+(RP.ch.dog?'<td class="tot"><b>'+money(T.dog)+'</b></td>':'')+(RP.ch.kom?'<td class="tot"><b>'+money(T.kom)+'</b></td>':'')+'<td class="tot"><b>'+money(total)+'</b></td><td class="tot"><b>'+nf.format(T.qty)+'</b></td></tr>';
+  h+='<div class="panel"><div class="scroll" style="max-height:none;min-height:0"><table><thead><tr>'+th+'</tr></thead><tbody>'+body+(D.list.length?foot:'')+'</tbody></table></div></div>';
+  if(D.top.length)h+='<div class="panel" style="margin-top:10px"><div style="padding:10px 14px 0"><b>Что продавалось лучше всего (сайт и касса)</b></div><div class="scroll" style="max-height:none;min-height:0"><table><thead><tr><th class="name">Позиция</th><th class="r">Шт.</th><th class="r">Сумма</th></tr></thead><tbody>'+D.top.map(function(x){return'<tr><td class="name">'+esc(x.n)+'</td><td class="tot">'+nf.format(x.q)+'</td><td class="tot">'+money(x.s)+'</td></tr>'}).join('')+'</tbody></table></div></div>';
+  h+='<div class="panel" style="margin-top:10px"><div style="padding:12px 14px"><b>Как считается.</b> Сайт и касса: количество из операций × цена позиции в каталоге (скидки и доставка не учтены), прибыль — минус себестоимость из МойСклад. Договоры: суммы из таблицы «Договоры 2026» по дате оплаты'+(D.nodate?' (договоров без даты оплаты: '+D.nodate+', в отчёт не вошли)':'')+'. Комиссионеры: оборот по отчётам и актам точек. Возвраты не вычитаются.</div></div>';
+  return h;
+}
+function rpCsv(){
+  claude.use('downloads').then(function(dl){
+    if(!dl){toast('Скачивание недоступно в этом окне');return}
+    var D=rpData(),q=function(v){v=String(v==null?'':v);return/[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+    var rows=[['Период','Сайт','Касса','Договоры','Комиссионеры','Итого','Шт.']];
+    D.list.forEach(function(x){rows.push([rpLabel(x.k,RP.by),Math.round(x.site),Math.round(x.kassa),Math.round(x.dog),Math.round(x.kom),Math.round(x.site+x.kassa+x.dog+x.kom),x.qty])});
+    var T=D.T;rows.push(['Итого',Math.round(T.site),Math.round(T.kassa),Math.round(T.dog),Math.round(T.kom),Math.round(T.site+T.kassa+T.dog+T.kom),T.qty]);
+    dl.save({filename:'Продажи по периодам.csv',data:'\ufeff'+rows.map(function(r){return r.map(q).join(';')}).join('\r\n')}).then(function(){toast('Файл сохранён')},function(){toast('Сохранение отменено')});
+  });
+}
+document.addEventListener('click',function(e){
+  var b=e.target.closest&&e.target.closest('[data-rpp],[data-rpb],#rp-csv');if(!b)return;
+  if(b.id==='rp-csv'){rpCsv();return}
+  if(b.dataset.rpp!==undefined)RP.pre=b.dataset.rpp;
+  if(b.dataset.rpb!==undefined)RP.by=b.dataset.rpb;
+  render();
+});
+document.addEventListener('change',function(e){
+  var t=e.target;
+  if(t.dataset&&t.dataset.rpc){RP.ch[t.dataset.rpc]=t.checked?1:0;render();return}
+  if(t.id==='rp-from'){RP.from=t.value;render()}
+  if(t.id==='rp-to'){RP.to=t.value;render()}
+});
 
 /* ---------- комиссионеры ---------- */
 function commCalc(c){
