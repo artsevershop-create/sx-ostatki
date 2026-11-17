@@ -313,7 +313,7 @@ function writeCounts(g,patch){
 var OPFROM={sale_site:'skl',sale_contract:'skl',sale_evotor:'mag',sale_retail:'mag',transfer:'skl',writeoff:'skl'};
 var OPTO={transfer:'sx',return:'skl',receipt:'skl'};
 function locSel(id,val,none){return'<select id="'+id+'">'+(none?'<option value="">—</option>':'')+LOCS.map(function(l){return'<option value="'+l[0]+'"'+(val===l[0]?' selected':'')+'>'+l[1]+'</option>'}).join('')+'</select>'}
-function openOp(type,itemId){
+function openOp(type,itemId,pre){
   closeLayer();
   var l=$('#layer');
   var d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());
@@ -325,8 +325,10 @@ function openOp(type,itemId){
     '<div class="lines" id="o-lines"></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="small" id="o-add">+ строка</button></div>'+
     '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button data-close>Отмена</button><button class="primary" id="o-save">Записать</button></div></div></div>';
   l.querySelectorAll('[data-close]').forEach(function(b){b.addEventListener('click',closeLayer)});
-  function addLine(id){var n=document.createElement('div');n.className='line';n.innerHTML='<input type="text" list="items-dl" placeholder="Наименование или код" aria-label="Позиция" value="'+esc(id&&IDX[id]?IDX[id].n:'')+'"><input type="number" min="1" step="1" placeholder="шт." aria-label="Количество" value="1"><button class="small" aria-label="Убрать строку">×</button>';n.querySelector('button').addEventListener('click',function(){n.remove()});$('#o-lines').appendChild(n)}
-  addLine(itemId);
+  function addLine(id,q,txt){var n=document.createElement('div');n.className='line';n.innerHTML='<input type="text" list="items-dl" placeholder="Наименование или код" aria-label="Позиция" value="'+esc(id&&IDX[id]?IDX[id].n:(txt||''))+'"><input type="number" min="1" step="1" placeholder="шт." aria-label="Количество" value="'+(q||1)+'"><button class="small" aria-label="Убрать строку">×</button>';n.querySelector('button').addEventListener('click',function(){n.remove()});$('#o-lines').appendChild(n)}
+  if(pre&&pre.spec&&pre.spec.length){pre.spec.forEach(function(x){addLine(x.item||null,x.q,x.n)})}else addLine(itemId);
+  if(pre&&pre.ref)$('#o-ref').value=pre.ref;
+  if(pre&&pre.spec&&pre.spec.length)$('#o-note').value='По спецификации: выберите цвет и размер в каждой строке';
   $('#o-add').addEventListener('click',function(){addLine()});
   function sync(){var t=$('#o-type').value;$('#w-from').style.display=(t==='return'||t==='receipt'||t==='adjust')?'none':'';$('#w-to').style.display=(t==='transfer'||t==='return'||t==='receipt')?'':'none';if(t==='adjust'){$('#w-from').style.display='';$('#w-from').firstChild.textContent='Место'}else $('#w-from').firstChild.textContent='Откуда';var f=OPFROM[t];if(f)$('#o-from').value=f;var to=OPTO[t];if(to)$('#o-to').value=to}
   $('#o-type').addEventListener('change',sync);sync();
@@ -344,7 +346,7 @@ function openOp(type,itemId){
     if(bad){toast('Выберите позицию из списка и укажите количество');return}
     if(!lines.length){toast('Добавьте хотя бы одну позицию');return}
     if(t==='transfer'&&from===to){toast('Места отправления и назначения совпадают');return}
-    saveMove({ts:new Date($('#o-date').value||Date.now()).toISOString(),type:t,ref:$('#o-ref').value.trim(),note:$('#o-note').value.trim(),lines:lines,src:'ручной ввод'}).then(function(){toast('Операция записана, остатки обновлены');closeLayer()},function(e){toast('Не удалось записать: '+(e&&e.message||e))});
+    saveMove({ts:new Date($('#o-date').value||Date.now()).toISOString(),type:t,ref:$('#o-ref').value.trim(),note:$('#o-note').value.trim(),lines:lines,src:'ручной ввод',contract:(pre&&pre.contract)||''}).then(function(){toast('Операция записана, остатки обновлены');closeLayer()},function(e){toast('Не удалось записать: '+(e&&e.message||e))});
   });
 }
 
@@ -733,13 +735,20 @@ function openDoc(id){
   (mm.length?'<div class="panel" style="padding:8px 12px;margin-bottom:10px"><b>Сверка</b><br>'+mm.map(esc).join('<br>')+'</div>':'')+
   '<div class="row2"><label class="f">Тип<select id="dd-type">'+opts+'</select></label><label class="f">Контрагент<input type="text" id="dd-cp" value="'+esc(c.counterparty||'')+'"></label><label class="f">ИНН<input type="text" id="dd-inn" value="'+esc(c.inn||'')+'"></label><label class="f">Номер<input type="text" id="dd-no" value="'+esc(c.doc_no||'')+'"></label><label class="f">Дата<input type="date" id="dd-date" value="'+esc(c.doc_date||'')+'"></label><label class="f">Сумма, ₽<input type="number" id="dd-amt" value="'+(c.amount==null?'':c.amount)+'"></label></div>'+
   '<div class="row2"><label class="f">Комиссионер (для отчётов)<select id="dd-comm">'+cms+'</select></label><label class="f">Период<input type="text" id="dd-per" value="'+esc(c.period||'')+'"></label><label class="f">Продано, шт.<input type="number" id="dd-qty" value="'+(c.qty==null?'':c.qty)+'"></label><label class="f">Продано, ₽<input type="number" id="dd-sold" value="'+(c.sold==null?'':c.sold)+'"></label><label class="f">Вознаграждение, ₽<input type="number" id="dd-fee" value="'+(c.fee==null?'':c.fee)+'"></label></div>'+
-  dealBlock(d)+'<div style="display:flex;flex-wrap:wrap;gap:8px"><button class="primary" id="dd-save">Сохранить и разложить</button>'+((d.asset||d.url)?'<button id="dd-open">Открыть файл</button>':'')+'<button id="dd-task">Создать задачу</button>'+(c.type==='comm_report'?'<button id="dd-rep"'+(d.repAdded?' disabled':'')+'>'+(d.repAdded?'Отчёт уже внесён':'Внести как отчёт комиссионера')+'</button>':'')+'<button class="danger" id="dd-del">Удалить</button></div>';
+  dealBlock(d)+'<div style="display:flex;flex-wrap:wrap;gap:8px"><button class="primary" id="dd-save">Сохранить и разложить</button>'+((d.asset||d.url)?'<button id="dd-open">Открыть файл</button>':'')+''+(c.type==='contract'&&window.CRM_ROLE&&window.CRM_ROLE()==='owner'?'<button class="primary" id="dd-sale" title="Добавить в справочник договоров и списать позиции спецификации">Разложить в продажу</button>':'')+'<button id="dd-task">Создать задачу</button>'+(c.type==='comm_report'?'<button id="dd-rep"'+(d.repAdded?' disabled':'')+'>'+(d.repAdded?'Отчёт уже внесён':'Внести как отчёт комиссионера')+'</button>':'')+'<button class="danger" id="dd-del">Удалить</button></div>';
   var L=$('#layer');L.querySelectorAll('[data-close]').forEach(function(b){b.addEventListener('click',closeLayer)});
   function read(){var n=function(i){var v=$('#'+i).value;return v===''?null:+v};return{type:$('#dd-type').value,counterparty:$('#dd-cp').value.trim(),inn:$('#dd-inn').value.trim(),doc_no:$('#dd-no').value.trim(),doc_date:$('#dd-date').value,amount:n('dd-amt'),comm_id:$('#dd-comm').value,period:$('#dd-per').value.trim(),qty:n('dd-qty'),sold:n('dd-sold'),fee:n('dd-fee')}}
   function merged(){return Object.assign({},c,read(),{confidence:Math.max(c.confidence||0,0.99)})}
   $('#dd-save').addEventListener('click',function(){var nc=merged();var tmp=Object.assign({},d,{cls:nc});upDoc(id,Object.assign({cls:nc,status:'filed',path:docPath(tmp)},readDeal())).then(function(){toast('Документ разложен: '+docPath(tmp));closeLayer()},function(x){toast('Не удалось сохранить: '+(x&&x.message||x))})});
   var ob=$('#dd-open');if(ob)ob.addEventListener('click',function(){if(d.asset&&window.CRM_FILE_URL){var w=window.open('','_blank');window.CRM_FILE_URL(d.asset).then(function(u){w.location=u},function(e){w.close();toast('Не удалось открыть файл: '+(e&&e.message||e))})}else if(d.url)window.open(d.url,'_blank')});
   $('#dd-task').addEventListener('click',function(){var nc=read();addTask({title:'По документу «'+d.name+'»',note:nc.counterparty,who:'staff',doc:id,prio:'norm'}).then(function(){toast('Задача создана');location.hash='#zadachi';closeLayer()})});
+  var sl=$('#dd-sale');if(sl)sl.addEventListener('click',function(){
+    var nc=merged();if(!nc.counterparty||!(nc.amount>0)){toast('Заполните контрагента и сумму договора');return}
+    var cid=d.ctr||('k'+uid());
+    db.collection('ctr').doc(cid).set({kind:'Продажа',no:(nc.doc_no||'без номера')+(nc.doc_date?' от '+dmy2(nc.doc_date):''),cp:nc.counterparty,date:nc.doc_date||'',sum:nc.amount,state:d.ctrState||'Не оплачен',doc:id})
+    .then(function(){return upDoc(id,{cls:nc,status:'filed',ctr:cid,deal:[{id:cid}]})})
+    .then(function(){closeLayer();openOp('sale_contract',null,{ref:'Договор '+nc.counterparty+(nc.doc_no?' № '+nc.doc_no:''),contract:cid,spec:d.spec||[]});toast('Договор добавлен в справочник. Выберите позиции из списка и запишите операцию.')},function(x){toast('Не удалось: '+(x&&x.message||x))});
+  });
   var rb=$('#dd-rep');if(rb)rb.addEventListener('click',function(){
     var nc=read(),cm=CM[nc.comm_id];if(!cm||!nc.period||!(nc.sold>0)){toast('Выберите комиссионера, период и сумму продаж');return}
     var est=nc.fee==null,fee=est?Math.round(nc.sold*0.2):nc.fee;
