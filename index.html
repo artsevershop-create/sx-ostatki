@@ -161,8 +161,18 @@ function recompute(){
     var thr=((G[it.g]||{}).ts||{})[l[1]]||'';
     if(m.ts>thr){var k=l[0]+'|'+l[1];DEL[k]=(DEL[k]||0)+l[2]}
   })});
+  window.ITEMS=ITEMS;
   var dl=$('#items-dl');if(dl){dl.innerHTML=ITEMS.map(function(i){return'<option value="'+esc(i.n)+'">'+esc(i.c||'')+'</option>'}).join('')}
 }
+window.CRM_GROUPNAME=function(id){return(G[id]&&G[id].name)||id};
+window.CRM_CPS=function(){
+  var seen={},out=[];
+  function add(n,inn,src){n=String(n||'').trim();if(!n||n==='—')return;var k=inn||n.toLowerCase().replace(/[^a-zа-яё0-9]+/g,' ').trim();if(seen[k])return;seen[k]=1;out.push({name:n,inn:inn||'',src:src})}
+  DOCS.forEach(function(d){var c=d.cls||{};add(c.counterparty,c.inn,'документы CRM')});
+  Object.keys(CTR).forEach(function(k){add(CTR[k].cp,'','договоры CRM')});
+  Object.keys(CM).forEach(function(k){add(CM[k].name,'','комиссионеры CRM')});
+  return out;
+};
 function calc(it,loc){var b=it.L&&it.L[loc],d=DEL[it.id+'|'+loc];if(b===undefined&&d===undefined)return null;return(b||0)+(d||0)}
 function fact(it,loc){var x=C[it.g]&&C[it.g].c&&C[it.g].c[it.id]&&C[it.g].c[it.id][loc];return x&&x[0]!=null?x[0]:null}
 function total(it){var s=0;LOCS.forEach(function(l){var c=calc(it,l[0]);if(c!=null)s+=c});return s}

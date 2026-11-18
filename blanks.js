@@ -53,10 +53,18 @@
 
   /* ---------- позиции ---------- */
   function newItem() { return { name: '', chars: '', qty: 1, unit: 'шт.', price: 0, pct: 0, img: '' }; }
-  function sums(items) {
-    var q = 0, t = 0, f = 0;
-    items.forEach(function (i) { var s = (+i.qty || 0) * (+i.price || 0); q += +i.qty || 0; t += s; f += s * (+i.pct || 0) / 100; });
-    return { qty: q, total: t, fee: f };
+  var VAT_DEF = 'НДС 5 %';
+  var VAT_LBL = 'НДС («НДС 5 %» — к ценам и сумме добавится 5 %; «НДС не облагается» — без НДС)';
+  function r2(v) { return Math.round((+v || 0) * 100) / 100; }
+  function vatRate(f) { var t = String((f && f.vat) || ''); if (!t || /не\s*облаг|без\s*ндс/i.test(t)) return 0; var m = /(\d+(?:[.,]\d+)?)\s*%/.exec(t); return m ? parseFloat(m[1].replace(',', '.')) : 0; }
+  function rateStr(r) { return String(r).replace('.', ','); }
+  function gprice(x, r) { return r2((+x.price || 0) * (1 + r / 100)); }
+  function gsum(x, r) { return r2((+x.qty || 0) * gprice(x, r)); }
+  function vatPhrase(f, s, word) { var r = vatRate(f); return r > 0 ? (word || 'в том числе') + ' НДС ' + rateStr(r) + ' % в сумме ' + money(s.vat) + ' (' + rubWords(s.vat).toLowerCase() + ')' : (f.vat || 'НДС не облагается'); }
+  function sums(items, rate) {
+    var r = rate == null ? (S && S.f ? vatRate(S.f) : 0) : rate, q = 0, t = 0, n = 0, f = 0;
+    items.forEach(function (i) { var g = gsum(i, r); q += +i.qty || 0; t += g; n += (+i.qty || 0) * (+i.price || 0); f += g * (+i.pct || 0) / 100; });
+    return { qty: q, total: r2(t), net: r2(n), vat: r2(t - n), fee: r2(f), rate: r };
   }
 
   /* ---------- типы документов ---------- */
@@ -74,7 +82,7 @@
         { k: 'addressee', l: 'Кому (по строкам: должность, организация, ФИО)', t: 'area', rows: 4, def: 'Директору\n\n\n' },
         { k: 'greeting', l: 'Обращение', def: 'Уважаемые партнёры!' },
         { k: 'intro', l: 'Вступление', t: 'area', rows: 3, def: function () { return C.short + ' сообщает Вам о возможности поставки текстильной продукции (далее — Товар) в ' + parts(todayIso()).y + ' году с доставкой в город ' + C.city + ':'; } },
-        { k: 'vat', l: 'НДС', def: 'НДС не облагается' },
+        { k: 'vat', l: VAT_LBL, def: VAT_DEF },
         { k: 'deadline', l: 'Срок поставки (после слов «Срок поставки»)', def: '' },
         { k: 'outro', l: 'Заключительная фраза', t: 'area', rows: 2, def: 'Надеемся на долгосрочное сотрудничество.' }
       ],
@@ -83,8 +91,8 @@
         L.push('{{НОМЕР}}', '');
         String(f.addressee || '').split('\n').forEach(function (x) { if (x.trim()) L.push('>> ' + x.trim()); });
         L.push('', f.greeting, f.intro, '{{ТАБЛИЦА}}');
-        var t = sums(f.items).total;
-        L.push('Общая стоимость составит ' + money(t) + ' (' + rubWords(t).toLowerCase() + '), ' + (f.vat || 'НДС не облагается') + '.');
+        var s = sums(f.items, vatRate(f)), t = s.total;
+        L.push('Общая стоимость составит ' + money(t) + ' (' + rubWords(t).toLowerCase() + '), ' + vatPhrase(f, s) + '.');
         if (f.deadline) L.push('Срок поставки ' + f.deadline + (/[.!]$/.test(f.deadline) ? '' : '.'));
         if (f.outro) L.push(f.outro);
         L.push('', '{{ПОДПИСЬ}}');
@@ -92,14 +100,15 @@
       }
     },
     pismo: {
-      title: 'Письмо на бланке', short: 'Письмо',
+      title: 'Письмо на бланке', short: 'Письмо', table: {},
       fields: [
         { k: 'number', l: 'Исходящий номер', def: function () { return nextNumber(); } },
         { k: 'date', l: 'Дата', t: 'date', def: todayIso },
         { k: 'addressee', l: 'Кому (по строкам)', t: 'area', rows: 4, def: '' },
         { k: 'subject', l: 'Тема (необязательно)', def: '' },
         { k: 'greeting', l: 'Обращение', def: 'Уважаемые партнёры!' },
-        { k: 'body', l: 'Текст письма', t: 'area', rows: 10, def: '' }
+        { k: 'body', l: 'Текст письма', t: 'area', rows: 10, def: '' },
+        { k: 'vat', l: VAT_LBL, def: VAT_DEF }
       ],
       tpl: function (f) {
         var L = ['{{НОМЕР}}', ''];
@@ -107,7 +116,10 @@
         L.push('');
         if (f.subject) L.push('**' + f.subject + '**', '');
         if (f.greeting) L.push(f.greeting);
-        L.push(f.body || '', '', '{{ПОДПИСЬ}}');
+        L.push(f.body || '');
+        var has = (f.items || []).some(function (x) { return x.name && String(x.name).trim(); });
+        if (has) { var s = sums(f.items, vatRate(f)); L.push('', '{{ТАБЛИЦА}}', 'Итого: ' + money(s.total) + ' руб. (' + rubWords(s.total).toLowerCase() + '), ' + vatPhrase(f, s) + '.'); }
+        L.push('', '{{ПОДПИСЬ}}');
         return L.join('\n');
       }
     },
@@ -123,7 +135,7 @@
         { k: 'cReq', l: 'Реквизиты покупателя (ИНН, адрес, банк, почта…)', t: 'area', rows: 6, def: '' },
         { k: 'cPost', l: 'Должность подписанта покупателя', def: 'Директор' },
         { k: 'cFio', l: 'Подписант покупателя (И.О. Фамилия)', def: '' },
-        { k: 'vat', l: 'НДС', def: 'НДС не облагается' },
+        { k: 'vat', l: VAT_LBL, def: VAT_DEF },
         { k: 'delivery', l: 'Доставка', def: function () { return 'до г. ' + C.city + ' силами и за счёт Поставщика'; } },
         { k: 'deadline', l: 'Срок поставки', def: '' },
         { k: 'payment', l: 'Порядок оплаты', t: 'area', rows: 2, def: 'в течение 5 (пяти) рабочих дней с даты выставления счёта путём перечисления на расчётный счёт Поставщика' },
@@ -131,7 +143,7 @@
         { k: 'claimDays', l: 'Срок рассмотрения претензии, рабочих дней', def: '10' }
       ],
       tpl: function (f) {
-        var s = sums(f.items), T = f.vat || 'НДС не облагается', L = [];
+        var s = sums(f.items, vatRate(f)), T = vatPhrase(f, s), L = [];
         L.push('# ДОГОВОР ПОСТАВКИ № ' + (f.number || '___'), (f.city || '') + ' || ' + dateLong(f.date), '');
         L.push(ourParty() + ', именуемое в дальнейшем «Поставщик», ' + ourRep() + ', с одной стороны, и ' + (f.cName || '________________') + ', именуемое в дальнейшем «Покупатель», ' + theirRep(f) + ', с другой стороны, совместно именуемые «Стороны», заключили настоящий договор (далее — Договор) о нижеследующем:');
         L.push('## 1. ПРЕДМЕТ ДОГОВОРА');
@@ -184,12 +196,12 @@
         { k: 'cReq', l: 'Реквизиты комиссионера (ИНН, адрес, банк, почта…)', t: 'area', rows: 6, def: '' },
         { k: 'cPost', l: 'Должность подписанта комиссионера', def: 'Директор' },
         { k: 'cFio', l: 'Подписант комиссионера (И.О. Фамилия)', def: '' },
-        { k: 'vat', l: 'НДС', def: 'НДС не облагается' },
+        { k: 'vat', l: VAT_LBL, def: VAT_DEF },
         { k: 'payDays', l: 'Перечислить выручку Комитенту, календарных дней после продажи', def: '30' },
         { k: 'saleDays', l: 'Срок реализации товара, календарных дней', def: '180' }
       ],
       tpl: function (f) {
-        var s = sums(f.items), L = [], P = f.payDays || '30', D = f.saleDays || '180';
+        var s = sums(f.items, vatRate(f)), L = [], P = f.payDays || '30', D = f.saleDays || '180';
         var num = f.number || '___';
         L.push('# Договор комиссии на реализацию товара № ' + num, (f.city || '') + ' || ' + dateLong(f.date), '');
         L.push(ourParty() + ', именуемое в дальнейшем «Комитент», ' + ourRep() + ', с одной стороны, и ' + (f.cName || '________________') + ', именуемое в дальнейшем «Комиссионер», ' + theirRep(f) + ', с другой стороны, именуемые вместе «Стороны», а по отдельности «Сторона», заключили настоящий договор (далее — Договор) о нижеследующем:');
@@ -251,7 +263,7 @@
         L.push('>> Приложение № 1', '>> к договору комиссии на реализацию товара от ' + dateNum(f.date), '>> № ' + num, '', '# Спецификация № 1 на реализацию Товара', (f.city || '') + ' || ' + dateLong(f.date), '');
         L.push(ourParty() + ', именуемое в дальнейшем «Комитент», ' + ourRep() + ', поручает, а ' + (f.cName || '________________') + ', именуемое в дальнейшем «Комиссионер», ' + theirRep(f) + ', принимает на себя во исполнение Договора следующее обязательство: реализовать следующий товар (далее — Товар):');
         L.push('{{ТАБЛИЦА}}');
-        L.push('На реализацию Комитент передаёт Комиссионеру Товар на общую сумму ' + money(s.total) + ' (' + rubWords(s.total).toLowerCase() + '), ' + (f.vat || 'НДС не облагается') + ', в том числе комиссионное вознаграждение ' + money(s.fee) + ' (' + rubWords(s.fee).toLowerCase() + ').');
+        L.push('На реализацию Комитент передаёт Комиссионеру Товар на общую сумму ' + money(s.total) + ' (' + rubWords(s.total).toLowerCase() + '), ' + vatPhrase(f, s, 'включая') + ', в том числе комиссионное вознаграждение ' + money(s.fee) + ' (' + rubWords(s.fee).toLowerCase() + ').');
         L.push('Настоящая Спецификация является неотъемлемой частью Договора, вступает в силу с момента её подписания Сторонами и действует до полного исполнения обязательств по Договору, а в части взаиморасчётов — до полного исполнения Сторонами своих обязательств.');
         L.push('{{ПОДПИСИ}}', '{{СТРАНИЦА}}');
         L.push('>> Приложение № 2', '>> к договору комиссии на реализацию товара от ' + dateNum(f.date), '>> № ' + num, '', '(ФОРМА)', '# Отчёт комиссионера о продаже № ___ от ____ ______ 20__ г.', '{{ОТЧЁТ}}');
@@ -289,25 +301,26 @@
     return '<table class="bl-req"><tr><td>' + our + '</td><td>' + their + '</td></tr></table>';
   }
   function itemsTable() {
-    var T = TYPES[S.type].table || {}, f = S.f, it = S.items, s = sums(it), vat = f.vat || 'НДС не облагается', kp = !!T.chars;
+    var T = TYPES[S.type].table || {}, f = S.f, it = S.items, vr = vatRate(f), s = sums(it, vr), vat = f.vat || 'НДС не облагается', kp = !!T.chars, vl = vr > 0 ? 'с НДС ' + rateStr(vr) + ' %' : vat;
     var allPcs = it.every(function (x) { return !x.unit || x.unit === 'шт.'; });
     var hasImg = kp && it.some(function (x) { return x.img; });
-    var head = kp ? ['№', 'Наименование'].concat(hasImg ? ['Изображение товара'] : [], ['Характеристики', allPcs ? 'Кол-во, шт.' : 'Кол-во', 'Цена, руб., ' + vat, 'Сумма, руб., ' + vat])
-      : ['№', 'Наименование', 'Кол-во', 'Ед. изм.', 'Цена за единицу, руб.', 'Сумма, руб.'];
+    var head = kp ? ['№', 'Наименование'].concat(hasImg ? ['Изображение товара'] : [], ['Характеристики', allPcs ? 'Кол-во, шт.' : 'Кол-во', 'Цена, руб., ' + vl, 'Сумма, руб., ' + vl])
+      : ['№', 'Наименование', 'Кол-во', 'Ед. изм.', 'Цена за единицу, руб.' + (vr > 0 ? ', ' + vl : ''), 'Сумма, руб.' + (vr > 0 ? ', ' + vl : '')];
     if (T.pct) head.push('% комиссионного вознаграждения', 'Вознаграждение, руб.');
     var rows = it.map(function (x, i) {
-      var sm = (+x.qty || 0) * (+x.price || 0), r = ['<td class="c">' + (i + 1) + '</td>', '<td>' + esc(x.name) + '</td>'];
+      var sm = gsum(x, vr), r = ['<td class="c">' + (i + 1) + '</td>', '<td>' + esc(x.name) + '</td>'];
       if (kp && hasImg) r.push('<td class="c">' + (x.img ? '<img class="bl-pimg" src="' + x.img + '" alt="">' : '') + '</td>');
       if (kp) r.push('<td>' + esc(x.chars).replace(/\n/g, '<br>') + '</td>', '<td class="c">' + qtyFmt(x.qty) + (allPcs ? '' : ' ' + esc(x.unit)) + '</td>');
       else r.push('<td class="c">' + qtyFmt(x.qty) + '</td>', '<td class="c">' + esc(x.unit) + '</td>');
-      r.push('<td class="r">' + money(x.price) + '</td>', '<td class="r">' + money(sm) + '</td>');
+      r.push('<td class="r">' + money(gprice(x, vr)) + '</td>', '<td class="r">' + money(sm) + '</td>');
       if (T.pct) r.push('<td class="c">' + qtyFmt(x.pct) + '%</td>', '<td class="r">' + money(sm * (+x.pct || 0) / 100) + '</td>');
       return '<tr>' + r.join('') + '</tr>';
     }).join('');
     var tail = kp ? '<td colspan="' + (hasImg ? 4 : 3) + '"><b>ИТОГО</b></td><td class="c"><b>' + qtyFmt(s.qty) + '</b></td><td></td><td class="r"><b>' + money(s.total) + '</b></td>'
       : '<td colspan="2"><b>ИТОГО</b></td><td class="c"><b>' + qtyFmt(s.qty) + '</b></td><td></td><td></td><td class="r"><b>' + money(s.total) + '</b></td>';
     if (T.pct) tail += '<td></td><td class="r"><b>' + money(s.fee) + '</b></td>';
-    return '<table class="bl-tbl"><thead><tr>' + head.map(function (x) { return '<th>' + esc(x) + '</th>'; }).join('') + '</tr></thead><tbody>' + rows + '<tr class="bl-tot">' + tail + '</tr></tbody></table>';
+    var vrow = vr > 0 ? '<tr class="bl-tot"><td colspan="' + (T.pct ? head.length - 3 : head.length - 1) + '"><b>В том числе НДС ' + rateStr(vr) + ' %</b></td><td class="r"><b>' + money(s.vat) + '</b></td>' + (T.pct ? '<td></td><td></td>' : '') + '</tr>' : '';
+    return '<table class="bl-tbl"><thead><tr>' + head.map(function (x) { return '<th>' + esc(x) + '</th>'; }).join('') + '</tr></thead><tbody>' + rows + '<tr class="bl-tot">' + tail + '</tr>' + vrow + '</tbody></table>';
   }
   function reportTable() {
     var rows = ''; for (var i = 1; i <= 6; i++) rows += '<tr><td class="c">' + i + '</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>';
@@ -431,7 +444,7 @@
   function refreshPrev() { var sh = $('#bl-sheet'); if (sh) { sh.innerHTML = sheetHtml(); fit(); } }
   function fld(x) {
     var v = esc(S.f[x.k] == null ? '' : S.f[x.k]);
-    var inp = x.t === 'area' ? '<textarea data-k="' + x.k + '" rows="' + (x.rows || 3) + '">' + v + '</textarea>' : '<input type="' + (x.t === 'date' ? 'date' : 'text') + '" data-k="' + x.k + '" value="' + v + '">';
+    var inp = x.t === 'area' ? '<textarea data-k="' + x.k + '" rows="' + (x.rows || 3) + '">' + v + '</textarea>' : '<input type="' + (x.t === 'date' ? 'date' : 'text') + '" data-k="' + x.k + '"' + (x.k === 'vat' ? ' list="bl-vatdl"' : '') + ' value="' + v + '">';
     return '<label>' + esc(x.l) + inp + '</label>';
   }
   function itemRow(x, i, T) {
@@ -463,6 +476,25 @@
     S.cpId = c.id; regen();
   }
   /* ---------- форма документа ---------- */
+  function cpDb() {
+    var a = []; try { a = window.CRM_CPS ? window.CRM_CPS() : []; } catch (e) { a = []; }
+    (typeof REG !== 'undefined' ? REG : []).forEach(function (r) { if (r.cp) a.push({ name: r.cp, inn: r.inn || '', src: 'реестр договоров' }); });
+    return a;
+  }
+  function cpFind(q) {
+    var k = nk(q), d = String(q || '').replace(/\D/g, ''), out = [], seen = {};
+    if (!k && !d) return out;
+    var hit = function (name, inn) { return (k && nk(name).indexOf(k) >= 0) || (d.length >= 3 && String(inn || '').indexOf(d) === 0); };
+    CPS.forEach(function (c) { if (hit((c.name || '') + ' ' + (c.short || ''), c.inn)) { out.push({ card: c, title: cpTitle(c), inn: c.inn || '', src: 'карточка' }); seen[c.inn || nk(cpTitle(c))] = 1; } });
+    cpDb().forEach(function (x) {
+      var key = x.inn || nk(x.name);
+      if (seen[key] || !hit(x.name, x.inn)) return;
+      if (CPS.some(function (c) { return (x.inn && c.inn === x.inn) || nk(cpTitle(c)) === nk(x.name); })) return;
+      seen[key] = 1; out.push({ db: x, title: x.name, inn: x.inn || '', src: x.src });
+    });
+    return out.slice(0, 10);
+  }
+  function cpFromDb(x) { var n = String(x.name || '').replace(/\s*\((?:комиссионер|комиссия)[^)]*\)\s*$/i, '').trim(); return { name: n, short: n.length < 46 ? n : '', inn: x.inn || '' }; }
   function cpOptions() {
     return '<option value="">— выбрать из сохранённых —</option>' + CPS.slice().sort(function (a, b) { return cpTitle(a).localeCompare(cpTitle(b), 'ru'); }).map(function (c) { return '<option value="' + esc(c.id) + '"' + (S.cpId === c.id ? ' selected' : '') + '>' + esc(cpTitle(c) + (c.inn ? ' · ' + c.inn : '')) + '</option>'; }).join('');
   }
@@ -477,6 +509,7 @@
     if (P === 'cps') { box.innerHTML = cpsHtml(); bindCps(); return; }
     if (P === 'cpe') { box.innerHTML = cpeHtml(); bindCpe(); return; }
     if (P === 'cat') { box.innerHTML = catHtml(); bindCat(); return; }
+    if (P === 'crm') { box.innerHTML = crmHtml(); bindCrm(); return; }
     if (P === 'paste') { box.innerHTML = pasteHtml(); bindPaste(); return; }
     if (P === 'tpls') { box.innerHTML = tplsHtml(); bindTpls(); return; }
     if (P === 'tple') { box.innerHTML = tpleHtml(); bindTple(); return; }
@@ -484,11 +517,11 @@
     if (missing) h += '<div class="bl-warn">Не загружены: ' + [!ASSET.logo && 'логотип', !ASSET.sign && 'подпись', !ASSET.stamp && 'печать'].filter(Boolean).join(', ') + '. Откройте «Реквизиты и файлы» и загрузите один раз.</div>';
     h += '<div class="bl-chk"><label><input type="checkbox" data-f="head"' + (S.flags.head ? ' checked' : '') + '> Бланк (шапка)</label><label><input type="checkbox" data-f="sign"' + (S.flags.sign ? ' checked' : '') + '> Подпись</label><label><input type="checkbox" data-f="stamp"' + (S.flags.stamp ? ' checked' : '') + '> Печать</label></div>';
     h += '<h3>' + esc(T.title) + (S.id ? ' · сохранён' : '') + '</h3>';
-    if (usesCp(T)) h += '<div class="bl-cp"><label>Контрагент<select id="bl-cpsel">' + cpOptions() + '</select></label><div class="bl-row"><button class="small" id="bl-cpnew">+ Новый</button><button class="small" id="bl-cpsave">Сохранить этого контрагента</button><button class="small" id="bl-cplist">Все контрагенты…</button></div></div>';
-    h += T.fields.map(fld).join('');
+    if (usesCp(T)) h += '<div class="bl-cp"><label>Контрагент: найти по названию или ИНН<input type="text" id="bl-cpq" placeholder="Например: Ямалдорстрой или 8901042804" autocomplete="off"></label><div class="bl-hist" id="bl-cpres"></div><label>или выбрать из сохранённых карточек<select id="bl-cpsel">' + cpOptions() + '</select></label><div class="bl-row"><button class="small" id="bl-cpnew">+ Новый</button><button class="small" id="bl-cpsave">Сохранить этого контрагента</button><button class="small" id="bl-cplist">Все контрагенты…</button></div></div>';
+    h += T.fields.map(fld).join('') + (T.fields.some(function (x) { return x.k === 'vat'; }) ? '<datalist id="bl-vatdl"><option value="НДС 5 %"><option value="НДС не облагается"></datalist>' : '');
     if (T.table) {
       h += '<h3>Товары</h3><div class="bl-items" id="bl-items">' + S.items.map(function (x, i) { return itemRow(x, i, T.table); }).join('') + '</div>';
-      h += '<div class="bl-row" style="margin:8px 0"><button id="bl-add">+ Строка</button><button id="bl-paste">Вставить из таблицы</button><button id="bl-itfile">Из файла</button><button id="bl-itcat">Из каталога</button><button id="bl-tocat" title="Запомнить позиции и цены">В каталог</button><input type="file" id="bl-itf" accept=".xlsx,.xls,.csv,.tsv,.txt,.docx" hidden></div><div class="bl-sum" id="bl-sum">' + sumLine() + '</div>';
+      h += '<div class="bl-row" style="margin:8px 0"><button id="bl-itcrm" class="primary">Из перечня CRM</button><button id="bl-add">+ Строка</button><button id="bl-paste">Вставить из таблицы</button><button id="bl-itfile">Из файла</button><button id="bl-itcat">Из каталога</button><button id="bl-tocat" title="Запомнить позиции и цены">В каталог</button><input type="file" id="bl-itf" accept=".xlsx,.xls,.csv,.tsv,.txt,.docx" hidden></div><div class="bl-sum" id="bl-sum">' + sumLine() + '</div>';
     }
     h += '<h3>Текст документа</h3><div class="bl-note">' + (S.edited ? 'Текст изменён вручную: поля выше больше не подставляются. ' : 'Текст собирается из полей выше, его можно править. ') + 'Строки {{НОМЕР}}, {{ТАБЛИЦА}}, {{ПОДПИСЬ}}, {{ПОДПИСИ}}, {{РЕКВИЗИТЫ}}, {{СТРАНИЦА}} — места таблицы, подписи и печати; <b>## </b> — заголовок раздела, <b>**жирный**</b>.</div>';
     h += '<textarea id="bl-text" rows="16">' + esc(S.text) + '</textarea>';
@@ -511,8 +544,18 @@
     var add = $('#bl-add'); if (add) add.onclick = function () { var last = S.items[S.items.length - 1] || {}; S.items.push(Object.assign(newItem(), { unit: last.unit || 'шт.', pct: last.pct || 0 })); regen(); renderForm(); refreshPrev(); };
     var ps = $('#bl-paste'); if (ps) ps.onclick = function () { S.ui.panel = 'paste'; renderForm(); };
     var itf = $('#bl-itf'); if (itf) { $('#bl-itfile').onclick = function () { itf.value = ''; itf.click(); }; itf.onchange = function () { if (itf.files[0]) importItemsFile(itf.files[0], function (list) { addItems(list); }); }; }
+    var icr = $('#bl-itcrm'); if (icr) icr.onclick = crmGo;
     var ic = $('#bl-itcat'); if (ic) ic.onclick = function () { S.ui.panel = 'cat'; S.ui.q = ''; renderForm(); };
     var tc = $('#bl-tocat'); if (tc) tc.onclick = function () { var n = catUpsert(S.items); saveCat().then(function () { toast('В каталоге позиций: ' + CAT.length + (n ? ', новых: ' + n : '')); }, function (e) { toast('Не удалось сохранить каталог: ' + e.message); }); };
+    var cq = $('#bl-cpq'); if (cq) cq.oninput = function () {
+      var res = cpFind(cq.value), bx = $('#bl-cpres'); S.ui.cpres = res;
+      bx.innerHTML = cq.value.trim() ? (res.length ? res.map(function (r, i) { return '<div><span class="t"><b>' + esc(r.title) + '</b><span class="muted">' + esc((r.inn ? 'ИНН ' + r.inn + ' · ' : '') + r.src) + '</span></span><button class="small primary" data-cpr="' + i + '">Выбрать</button></div>'; }).join('') : '<div class="muted">Ничего не найдено. Создайте карточку кнопкой «+ Новый».</div>') : '';
+    };
+    var cres = $('#bl-cpres'); if (cres) cres.onclick = function (ev) {
+      var b = ev.target.closest('[data-cpr]'); if (!b) return; var r = (S.ui.cpres || [])[+b.dataset.cpr]; if (!r) return;
+      if (r.card) { applyCp(r.card); renderForm(); refreshPrev(); toast('Подставлен контрагент: ' + cpTitle(r.card)); }
+      else { S.ui.cp = cpFromDb(r.db); S.ui.cpApply = true; S.ui.panel = 'cpe'; renderForm(); toast('Найден в базе CRM: допишите реквизиты и сохраните'); }
+    };
     var sel = $('#bl-cpsel'); if (sel) sel.onchange = function () { var c = findCp(sel.value); if (c) { applyCp(c); renderForm(); refreshPrev(); toast('Подставлен контрагент: ' + cpTitle(c)); } };
     var cn = $('#bl-cpnew'); if (cn) cn.onclick = function () { S.ui.cp = { }; S.ui.cpApply = true; S.ui.panel = 'cpe'; renderForm(); };
     var cs = $('#bl-cpsave'); if (cs) cs.onclick = saveCpFromDoc;
@@ -565,7 +608,10 @@
     h += '<div class="bl-note">Файл: Excel/CSV с колонками «Наименование, ИНН, КПП, ОГРН, Адрес, Банк, Р/с, К/с, БИК, Телефон, E-mail, Должность, Подписант, В лице, Основание» (по одной организации в строке) или карточка реквизитов в Word/TXT (одна организация).</div>';
     h += '<input type="text" id="cp-q" placeholder="Поиск по названию или ИНН" value="' + esc(S.ui.q || '') + '" style="margin:6px 0 8px;width:100%;box-sizing:border-box;font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink)"><div class="bl-hist" id="cp-list">';
     h += list.length ? list.map(function (c) { return '<div><span class="t"><b>' + esc(cpTitle(c)) + '</b><span class="muted">' + esc(c.inn ? 'ИНН ' + c.inn : '') + (c.fio ? ' · ' + esc(c.fio) : '') + '</span></span><button class="small" data-cu="' + esc(c.id) + '">Выбрать</button><select class="small" data-cm="' + esc(c.id) + '" style="max-width:104px">' + mk + '</select><button class="small" data-ce="' + esc(c.id) + '">Править</button><button class="small danger" data-cd="' + esc(c.id) + '">×</button></div>'; }).join('') : '<div class="muted">' + (CPS.length ? 'Ничего не найдено.' : 'Контрагентов пока нет: добавьте карточку или загрузите файл.') + '</div>';
-    return h + '</div>';
+    var dbres = q ? cpFind(S.ui.q).filter(function (r) { return r.db; }) : []; S.ui.cpdb = dbres;
+    h += '</div>';
+    if (dbres.length) h += '<h3>Найдено в базе CRM (карточки нет)</h3><div class="bl-hist">' + dbres.map(function (r, i) { return '<div><span class="t"><b>' + esc(r.title) + '</b><span class="muted">' + esc((r.inn ? 'ИНН ' + r.inn + ' · ' : '') + r.src) + '</span></span><button class="small primary" data-cdb="' + i + '">Создать карточку</button></div>'; }).join('') + '</div>';
+    return h;
   }
   function bindCps() {
     bindBack();
@@ -574,6 +620,7 @@
     var f = $('#cp-f'); $('#cp-file').onclick = function () { f.value = ''; f.click(); };
     f.onchange = function () { if (f.files[0]) importCpFile(f.files[0]); };
     $('#cp-q').oninput = function (e) { S.ui.q = e.target.value; var pos = e.target.selectionStart; renderForm(); var q = $('#cp-q'); q.focus(); q.setSelectionRange(pos, pos); };
+    [].forEach.call(box.querySelectorAll('[data-cdb]'), function (b) { b.onclick = function () { var r = (S.ui.cpdb || [])[+b.dataset.cdb]; if (!r) return; S.ui.cp = cpFromDb(r.db); S.ui.cpApply = false; S.ui.panel = 'cpe'; renderForm(); }; });
     [].forEach.call(box.querySelectorAll('[data-cu]'), function (b) { b.onclick = function () { var c = findCp(b.dataset.cu); applyCp(c); S.ui.panel = ''; renderForm(); refreshPrev(); toast('Подставлен контрагент: ' + cpTitle(c)); }; });
     [].forEach.call(box.querySelectorAll('[data-ce]'), function (b) { b.onclick = function () { S.ui.cp = Object.assign({}, findCp(b.dataset.ce)); S.ui.cpApply = false; S.ui.panel = 'cpe'; renderForm(); }; });
     [].forEach.call(box.querySelectorAll('[data-cd]'), function (b) { b.onclick = function () { var c = findCp(b.dataset.cd); if (!confirm('Удалить карточку «' + cpTitle(c) + '»?')) return; API.del('cp', c.id).then(function () { CPS = CPS.filter(function (x) { return x.id !== c.id; }); if (S.cpId === c.id) S.cpId = null; renderForm(); }, function (e) { toast('Не удалось удалить: ' + e.message); }); }; });
@@ -621,6 +668,43 @@
     if (!c.name) { toast('Укажите наименование контрагента'); return; }
     saveCp(c).then(function (saved) { S.cpId = saved.id; renderForm(); toast('Контрагент сохранён: ' + cpTitle(saved)); }, function (e) { toast('Не удалось сохранить: ' + e.message); });
   }
+
+  /* ---------- товары из перечня CRM ---------- */
+  function crmList() { var a = []; try { a = window.ITEMS || []; } catch (e) { a = []; } return a; }
+  function crmStock(it) { var L = it.L || {}, tot = 0; Object.keys(L).forEach(function (k) { if (L[k] > 0) tot += L[k]; }); return { skl: L.skl == null ? 0 : L.skl, tot: tot }; }
+  function crmRows() {
+    var q = nk(S.ui.q), g = S.ui.g || '';
+    var res = crmList().filter(function (i) { return (!g || i.g === g) && (!q || nk([i.n, i.c, i.a, i.al].join(' ')).indexOf(q) >= 0); }).slice(0, 60);
+    S.ui.crmRes = res;
+    return res.length ? res.map(function (i, k) {
+      var st = crmStock(i), x = catFind(i.n), price = x && x.price ? x.price : (i.p || 0);
+      return '<div class="bl-crm"><span class="t"><b>' + esc(i.n) + '</b><span class="muted">' + esc((i.c ? i.c + ' · ' : '') + 'склад ' + st.skl + ', всего ' + st.tot) + '</span></span><input type="number" step="any" data-cp="price" value="' + esc(price) + '" title="Цена, ₽ (без НДС)" style="width:74px"><input type="number" step="any" data-cp="qty" value="1" min="0" title="Количество" style="width:54px"><button class="small primary" data-cradd="' + k + '">+</button></div>';
+    }).join('') : '<div class="muted" style="padding:6px">' + (crmList().length ? 'Ничего не найдено.' : 'Перечень CRM ещё не загружен: подождите несколько секунд и откройте окно заново.') + '</div>';
+  }
+  function crmHtml() {
+    var gs = {}; crmList().forEach(function (i) { gs[i.g] = 1; });
+    var gn = function (id) { try { return window.CRM_GROUPNAME ? window.CRM_GROUPNAME(id) : id; } catch (e) { return id; } };
+    var h = '<h3>Товары из перечня CRM (' + crmList().length + ')</h3><div class="bl-row">' + backBtn('← К документу') + '</div>';
+    h += '<div class="bl-note">Найдите товар, поправьте цену (без НДС) и количество, нажмите «+». Позиция попадёт в таблицу документа, НДС в таблице считается по полю «НДС». Позиций в документе: <b id="crm-cnt">' + S.items.filter(function (x) { return x.name; }).length + '</b>.</div>';
+    h += '<div class="bl-row"><input type="text" id="crm-q" placeholder="Поиск по названию, коду или артикулу" value="' + esc(S.ui.q || '') + '" style="flex:1;min-width:160px"><select id="crm-g" style="max-width:150px"><option value="">Все группы</option>' + Object.keys(gs).map(function (id) { return '<option value="' + esc(id) + '"' + (S.ui.g === id ? ' selected' : '') + '>' + esc(gn(id)) + '</option>'; }).join('') + '</select></div>';
+    h += '<div class="bl-hist" id="crm-list">' + crmRows() + '</div>';
+    return h;
+  }
+  function bindCrm() {
+    bindBack();
+    var T = TYPES[S.type].table || {};
+    function draw() { $('#crm-list').innerHTML = crmRows(); }
+    $('#crm-q').oninput = function (e) { S.ui.q = e.target.value; draw(); };
+    $('#crm-g').onchange = function (e) { S.ui.g = e.target.value; draw(); };
+    $('#crm-list').onclick = function (ev) {
+      var b = ev.target.closest('[data-cradd]'); if (!b) return;
+      var row = b.closest('.bl-crm'), i = (S.ui.crmRes || [])[+b.dataset.cradd]; if (!i) return;
+      var price = +row.querySelector('[data-cp=price]').value || 0, qty = +row.querySelector('[data-cp=qty]').value || 1, x = catFind(i.n) || {};
+      addItemsKeep([Object.assign(newItem(), { name: i.n, chars: T.chars ? x.chars || '' : '', unit: x.unit || 'шт.', price: price, qty: qty, pct: T.pct ? x.pct || 0 : 0, img: T.chars ? x.img || '' : '' })]);
+      var c = $('#crm-cnt'); if (c) c.textContent = S.items.filter(function (z) { return z.name; }).length;
+    };
+  }
+  function crmGo() { S.ui.panel = 'crm'; S.ui.q = ''; S.ui.g = ''; renderForm(); }
 
   /* ---------- каталог позиций ---------- */
   function nk(s) { return String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/g, ' ').trim(); }
@@ -766,14 +850,14 @@
 
   /* ---------- свои шаблоны ---------- */
   var BLOCKS = ['ТАБЛИЦА', 'ПОДПИСЬ', 'ПОДПИСИ', 'РЕКВИЗИТЫ', 'СТРАНИЦА', 'ОТЧЁТ', 'НОМЕР'];
-  var PH_HELP = '{{Номер}} {{Дата}} {{Дата кратко}} {{Город}} {{Наша организация}} {{Мы в лице}} {{Контрагент}} {{Контрагент кратко}} {{В лице}} {{Основание}} {{ИНН}} {{КПП}} {{ОГРН}} {{Адрес}} {{Банк}} {{Р/с}} {{К/с}} {{БИК}} {{Телефон}} {{Email}} {{Реквизиты контрагента}} {{Должность контрагента}} {{Подписант контрагента}} {{Кому}} {{Обращение}} {{Итого}} {{Итого прописью}} {{НДС}} {{Вознаграждение}}';
+  var PH_HELP = '{{Номер}} {{Дата}} {{Дата кратко}} {{Город}} {{Наша организация}} {{Мы в лице}} {{Контрагент}} {{Контрагент кратко}} {{В лице}} {{Основание}} {{ИНН}} {{КПП}} {{ОГРН}} {{Адрес}} {{Банк}} {{Р/с}} {{К/с}} {{БИК}} {{Телефон}} {{Email}} {{Реквизиты контрагента}} {{Должность контрагента}} {{Подписант контрагента}} {{Кому}} {{Обращение}} {{Итого}} {{Итого прописью}} {{НДС}} {{Сумма НДС}} {{Итого без НДС}} {{Вознаграждение}}';
   function phMap(f) {
-    var s = sums(f.items || []);
+    var s = sums(f.items || [], vatRate(f));
     return {
       'номер': f.number, 'дата': dateLong(f.date), 'дата кратко': dateNum(f.date), 'город': f.city, 'наша организация': ourParty(), 'мы в лице': ourRep(),
       'контрагент': f.cName, 'контрагент кратко': f.cShort || firstLine(f.cName), 'в лице': theirRep(f), 'основание': f.cBasis, 'инн': f.cInn, 'кпп': f.cKpp, 'огрн': f.cOgrn, 'адрес': f.cAddr, 'банк': f.cBank, 'р/с': f.cRs, 'к/с': f.cKs, 'бик': f.cBik, 'телефон': f.cPhone, 'email': f.cEmail,
       'реквизиты контрагента': f.cReq, 'должность контрагента': f.cPost, 'подписант контрагента': f.cFio, 'кому': f.addressee, 'обращение': f.greeting,
-      'итого': money(s.total), 'итого прописью': rubWords(s.total), 'ндс': f.vat || 'НДС не облагается', 'вознаграждение': money(s.fee)
+      'итого': money(s.total), 'итого прописью': rubWords(s.total), 'ндс': f.vat || 'НДС не облагается', 'сумма ндс': money(s.vat), 'итого без ндс': money(s.net), 'вознаграждение': money(s.fee)
     };
   }
   function varSpec(n) { var t = n.slice(1), i = t.indexOf('='); return i < 0 ? { name: t.trim(), def: '' } : { name: t.slice(0, i).trim(), def: t.slice(i + 1).trim() }; }
@@ -808,7 +892,7 @@
     ];
     if (sc.cp) fl.push({ k: 'cName', l: 'Контрагент: полное наименование', t: 'area', rows: 2, def: '' }, { k: 'cPerson', l: 'В лице (родительный падеж)', def: '' }, { k: 'cBasis', l: 'Действует на основании', def: 'Устава' }, { k: 'cReq', l: 'Реквизиты контрагента', t: 'area', rows: 6, def: '' }, { k: 'cPost', l: 'Должность подписанта контрагента', def: 'Директор' }, { k: 'cFio', l: 'Подписант контрагента (И.О. Фамилия)', def: '' });
     if (sc.to) fl.push({ k: 'addressee', l: 'Кому (по строкам)', t: 'area', rows: 4, def: '' }, { k: 'greeting', l: 'Обращение', def: 'Уважаемые партнёры!' });
-    if (sc.table || /\{\{\s*(НДС|Итого)/i.test(d.text)) fl.push({ k: 'vat', l: 'НДС', def: 'НДС не облагается' });
+    if (sc.table || /\{\{\s*(НДС|Итого)/i.test(d.text)) fl.push({ k: 'vat', l: VAT_LBL, def: VAT_DEF });
     sc.vars.forEach(function (v) { fl.push({ k: 'v:' + v.name, l: v.name, def: v.def }); });
     return { custom: true, tid: id, title: d.title || 'Шаблон', short: d.short || d.title || 'Док', table: sc.table ? (d.table || {}) : null, contract: d.kind === 'contract' || sc.cp ? { we: d.we || 'Исполнитель', they: d.they || 'Заказчик' } : null, fields: fl, tpl: function (f) { return fillText(d.text, f); } };
   }
