@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Рассылка КП — CRM Северный Характер</title>
+<script src="supabase.min.js"></script>
+<style>
+:root{--bg:#F4F3EF;--fg:#14161B;--mu:#5B6271;--ln:#DCDCD6;--ac:#C8261B;--ok:#1E7A46;--blue:#10246A}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:400 16px/1.5 system-ui,"Segoe UI",sans-serif}
+.w{max-width:1080px;margin:0 auto;padding:24px 18px 80px}header{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between}h1{margin:0;font-size:30px;letter-spacing:-.02em}
+a{color:var(--blue)}.st{font-size:15px;padding:8px 12px;background:#fff;border-left:4px solid var(--mu)}.st.on{border-color:var(--ok)}.st.off{border-color:var(--ac)}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 6px;align-items:center}.bar .sp{flex:1}
+button,.btn{min-height:44px;padding:0 16px;border:0;background:#E7E8EC;color:var(--fg);font:inherit;font-size:15px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;text-decoration:none}
+button.pri{background:var(--blue);color:#fff}button.dan{background:var(--ac);color:#fff}button:disabled{opacity:.45;cursor:default}button[aria-pressed=true]{background:var(--fg);color:#fff}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid #E0A04E;outline-offset:2px}
+.cnt{color:var(--mu);font-size:15px}
+article{background:#fff;margin-top:12px;border-left:5px solid var(--ln)}article.sent{border-color:var(--ok)}article.error{border-color:var(--ac)}article.draft{border-color:var(--blue)}
+.hd{display:flex;gap:14px;align-items:center;padding:14px 18px;cursor:pointer}.hd h2{margin:0;font-size:19px;flex:1;min-width:0}.chip{font-size:13.5px;padding:3px 9px;background:#EEF0F4;white-space:nowrap}.sent .chip{background:#DFF2E6;color:var(--ok)}.error .chip{background:#FBE3E1;color:var(--ac)}
+.bd{padding:0 18px 18px;display:grid;gap:12px}.bd[hidden]{display:none}label{display:grid;gap:4px;font-size:14px;color:var(--mu)}input,textarea{width:100%;font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--ln);background:#FCFCFA;color:var(--fg)}textarea{min-height:320px;line-height:1.45}
+.g2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}.act{display:flex;flex-wrap:wrap;gap:8px}.msg{font-size:14.5px;color:var(--mu);min-height:1.4em}.msg.err{color:var(--ac)}.att{font-size:14.5px}
+.drop{margin-top:16px;padding:18px;background:#fff;border:2px dashed var(--ln)}.drop p{margin:0 0 10px;color:var(--mu)}
+@media (max-width:700px){.g2{grid-template-columns:minmax(0,1fr)}h1{font-size:25px}.hd{flex-wrap:wrap;gap:6px 12px}.hd h2{flex:1 1 100%}.hd .cnt{flex:1;min-width:0;overflow-wrap:anywhere}}
+</style>
+</head>
+<body><div class="w">
+<header><h1>Рассылка КП</h1><div class="st" id="st" role="status">Проверяю подключение почты…</div></header>
+<form class="drop" id="cfg" hidden autocomplete="off"><p><b>Подключение почты.</b> Нужен пароль приложения, обычный пароль от почты не подойдёт. Для Gmail: включите <a href="https://myaccount.google.com/signinoptions/twosv" target="_blank" rel="noopener">двухэтапную аутентификацию</a>, затем создайте <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">пароль приложения</a> с любым названием, например «CRM», и вставьте 16 букв сюда.</p><div class="g2"><label>Почта<input id="c-mail" type="email" value="artsevershop@gmail.com" autocomplete="off"></label><label>Пароль приложения<input id="c-pass" type="password" autocomplete="new-password" spellcheck="false"></label></div><div class="act" style="margin-top:12px"><button class="pri" id="c-go">Проверить и подключить</button><button type="button" id="c-off" hidden>Отключить почту</button></div><p class="msg" id="c-msg" aria-live="polite"></p></form>
+<p class="cnt"><a href="./">← в CRM</a> · Письма уходят по одному, только по кнопке и после подтверждения. Отправленные письма видны в папке «Отправленные» вашей почты.</p>
+<div class="drop" id="imp" hidden><p>Загрузка писем: выберите папку <b>otpravka</b> (в ней letters.json и PDF с КП). Уже отправленные письма не перезаписываются.</p><input type="file" id="dir" webkitdirectory multiple aria-label="Папка otpravka"><p class="msg" id="impm" aria-live="polite"></p></div>
+<div class="bar" role="group" aria-label="Фильтр"><button data-f="all" aria-pressed="true">Все</button><button data-f="draft" aria-pressed="false">Черновики</button><button data-f="sent" aria-pressed="false">Отправлены</button><button data-f="error" aria-pressed="false">Ошибки</button><span class="sp"></span><span class="cnt" id="cnt"></span><button id="toimp">Загрузить письма</button><button id="tocfg">Почта</button></div>
+<div id="list"></div>
+</div>
+<script>
+(function(){
+  var $=function(s,r){return (r||document).querySelector(s)},L=[],F='all',OPEN={},READY=false,FROM='';
+  var CFGS={url:'https://nvywtrzrxpolyqvrntjl.supabase.co',key:'sb_publishable_4q3Ty9pTKaQwvxRm0V2CEA_PPoOj7M8'},sb=supabase.createClient(CFGS.url,CFGS.key,{auth:{persistSession:true,autoRefreshToken:true,storageKey:'ostatki-crm-auth'}}),ME='';
+  function ok(r){if(r.error)throw new Error(r.error.message||String(r.error));return r.data}
+  function fn(body){return sb.auth.getSession().then(function(s){var t=s.data.session&&s.data.session.access_token;if(!t)throw new Error('нужен вход');return fetch(CFGS.url+'/functions/v1/crm-mail',{method:'POST',headers:{'content-type':'application/json',apikey:CFGS.key,authorization:'Bearer '+t},body:JSON.stringify(body)})}).then(function(r){return r.json().catch(function(){return{}}).then(function(j){if(!r.ok)throw new Error(j.error||('ошибка '+r.status));return j})})}
+  function putDoc(id,data){return sb.from('crm_docs').upsert({coll:'mail',id:id,data:data,updated_at:new Date().toISOString(),updated_by:ME}).then(ok)}
+  function patchDoc(id,p){var x=L.find(function(y){return y.id===id}),d=Object.assign({},x.data,p);return sb.from('crm_docs').update({data:d,updated_at:new Date().toISOString(),updated_by:ME}).eq('coll','mail').eq('id',id).then(ok).then(function(){return d})}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+  function when(t){return t?new Date(t).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}
+  function chip(d){return d.status==='sent'?'Отправлено '+when(d.sentAt):d.status==='error'?'Ошибка':'Черновик'}
+  function emails(v){return String(v||'').split(/[,;\s]+/).map(function(x){return x.trim()}).filter(Boolean)}
+  function draw(){
+    var l=$('#list');l.textContent='';var shown=L.filter(function(x){var s=x.data.status||'draft';return F==='all'||s===F});
+    $('#cnt').textContent=L.filter(function(x){return x.data.status==='sent'}).length+' из '+L.length+' отправлено';
+    if(!L.length){l.innerHTML='<p class="cnt">Писем пока нет. Нажмите «Загрузить письма» и выберите папку otpravka.</p>';$('#imp').hidden=false}
+    shown.forEach(function(x){var d=x.data,s=d.status||'draft',a=document.createElement('article');a.className=s;a.id='m-'+x.id;
+      a.innerHTML='<div class="hd" role="button" tabindex="0" aria-expanded="'+!!OPEN[x.id]+'"><h2>'+esc((d.num?d.num+'. ':'')+d.short)+'</h2><span class="cnt">'+esc((d.to||[]).join(', ')||'нет почты')+'</span><span class="chip">'+esc(chip(d))+'</span></div>'+
+      '<div class="bd"'+(OPEN[x.id]?'':' hidden')+'><div class="g2"><label>Кому<input data-k="to" value="'+esc((d.to||[]).join(', '))+'"></label><label>Копия<input data-k="cc" value="'+esc((d.cc||[]).join(', '))+'"></label></div>'+
+      '<label>Тема<input data-k="subject" value="'+esc(d.subject)+'"></label><label>Текст<textarea data-k="body">'+esc(d.body)+'</textarea></label>'+
+      '<div class="att">Вложение: '+((d.files||[]).map(function(f){return '<a href="#" data-file="'+esc(f.path)+'">'+esc(f.name)+'</a>'}).join(', ')||'нет')+(d.concept?' · <a href="'+esc(d.concept)+'" target="_blank" rel="noopener">концепция</a>':'')+(d.who?' · '+esc(d.who):'')+(d.phone?' · '+esc(d.phone):'')+'</div>'+
+      (d.error?'<p class="msg err">'+esc(d.error)+'</p>':'')+
+      '<div class="act"><button data-a="save">Сохранить</button><button data-a="test">Тест себе</button><button class="'+(s==='sent'?'dan':'pri')+'" data-a="send">'+(s==='sent'?'Отправить ещё раз':'Отправить')+'</button></div><p class="msg" aria-live="polite"></p></div>';
+      var hd=$('.hd',a),bd=$('.bd',a);function tg(){bd.hidden=!bd.hidden;OPEN[x.id]=!bd.hidden;hd.setAttribute('aria-expanded',!bd.hidden)}hd.onclick=tg;hd.onkeydown=function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();tg()}};
+      a.querySelectorAll('[data-file]').forEach(function(f){f.onclick=function(e){e.preventDefault();sb.storage.from('crm-docs').createSignedUrl(f.dataset.file,300).then(ok).then(function(r){window.open(r.signedUrl,'_blank')}).catch(function(er){alert(er.message)})}});a.querySelectorAll('[data-a]').forEach(function(b){b.onclick=function(){act(x.id,b.dataset.a,a,b)}});l.appendChild(a)})
+  }
+  function vals(a){return{to:emails($('[data-k=to]',a).value),cc:emails($('[data-k=cc]',a).value),subject:$('[data-k=subject]',a).value.trim(),body:$('[data-k=body]',a).value}}
+  function act(id,what,a,b){var m=$('.msg',a),v=vals(a),x=L.find(function(y){return y.id===id});m.className='msg';
+    var save=function(){return patchDoc(id,v).then(function(d){x.data=d;return d})};
+    if(what==='save'){m.textContent='Сохраняю…';return save().then(function(){m.textContent='Сохранено'}).catch(function(e){m.className='msg err';m.textContent=e.message})}
+    if(!READY){m.className='msg err';m.textContent='Почта не подключена на сервере, отправка недоступна';return}
+    var test=what==='test';if(!test){if(!v.to.length){m.className='msg err';m.textContent='Укажите адрес получателя';return}
+      if(!confirm('Отправить письмо «'+v.subject+'»\nКому: '+v.to.join(', ')+(v.cc.length?'\nКопия: '+v.cc.join(', '):'')+'\nС вложением КП, с ящика '+FROM+'?'))return}
+    b.disabled=true;m.textContent=test?'Отправляю тест на '+FROM+'…':'Отправляю…';
+    save().then(function(){return fn({action:'send',id:id,test:test,again:x.data.status==='sent'})}).then(function(r){m.textContent=test?'Тест отправлен на '+FROM+', проверьте ящик':'Отправлено: '+r.to.join(', ');if(!test){x.data=r.doc;setTimeout(draw,1200)}}).catch(function(e){m.className='msg err';m.textContent=e.message;load()}).then(function(){b.disabled=false})}
+  function load(){return sb.from('crm_docs').select('id,data').eq('coll','mail').then(ok).then(function(r){L=r.sort(function(a,b){return (a.data.num||'').localeCompare(b.data.num||'')});draw()})}
+  // импорт папки otpravka
+  $('#toimp').onclick=function(){var i=$('#imp');i.hidden=!i.hidden;if(!i.hidden)$('#dir').focus()};
+  $('#dir').onchange=function(){var fs=[].slice.call(this.files),m=$('#impm'),j=fs.find(function(f){return /(^|\/)letters\.json$/.test(f.webkitRelativePath||f.name)});m.className='msg';
+    if(!j){m.className='msg err';m.textContent='В папке нет letters.json: выберите папку otpravka целиком';return}
+    j.text().then(function(t){var Ls=JSON.parse(t),n=0,k=0;return Ls.reduce(function(p,l){return p.then(function(){var ex=L.find(function(y){return y.id===l.slug});if(ex&&ex.data.status==='sent'){k++;return}
+      var pdf=fs.find(function(f){return f.name===l.pdf});m.textContent='Загружаю '+(++n)+' из '+Ls.length+': '+l.short;
+      var path='mail/'+l.slug+'.pdf';return (pdf?sb.storage.from('crm-docs').upload(path,pdf,{upsert:true,contentType:'application/pdf'}).then(ok).then(function(){return [{path:path,name:l.pdfName,type:'application/pdf'}]}):Promise.resolve([])).then(function(files){
+        return putDoc(l.slug,{num:l.num,short:l.short,title:'Письмо: '+l.short,who:l.who,phone:l.phone,to:l.to,cc:l.cc,subject:l.subject,body:l.body,files:files,concept:l.concept,status:'draft'})})})},Promise.resolve()).then(function(){m.textContent='Готово: загружено '+(n)+', пропущено отправленных '+k;return load()})}).catch(function(e){m.className='msg err';m.textContent=e.message})};
+  document.querySelectorAll('[data-f]').forEach(function(b){b.onclick=function(){F=b.dataset.f;document.querySelectorAll('[data-f]').forEach(function(x){x.setAttribute('aria-pressed',x===b)});draw()}});
+  function status(s){READY=s.ready;FROM=s.from;var st=$('#st');st.className='st '+(s.ready?'on':'off');st.textContent=s.ready?'Почта подключена: '+s.from:'Почта не подключена: нажмите «Почта»';$('#c-off').hidden=!s.ready;if(!s.ready)$('#cfg').hidden=false}
+  $('#tocfg').onclick=function(){var c=$('#cfg');c.hidden=!c.hidden;if(!c.hidden)$('#c-pass').focus()};
+  $('#cfg').onsubmit=function(e){e.preventDefault();var m=$('#c-msg'),b=$('#c-go');m.className='msg';m.textContent='Проверяю вход в почту…';b.disabled=true;fn({action:'config',email:$('#c-mail').value,pass:$('#c-pass').value}).then(function(s){$('#c-pass').value='';m.textContent='Готово: письма будут уходить с '+s.from;status(s)}).catch(function(er){m.className='msg err';m.textContent=er.message}).then(function(){b.disabled=false})};
+  $('#c-off').onclick=function(){if(confirm('Отключить почту? Пароль приложения будет удалён из CRM.'))fn({action:'disconnect'}).then(status)};
+  sb.auth.getSession().then(function(r){var ss=r.data.session;if(!ss){document.querySelector('.w').innerHTML='<h1>Рассылка КП</h1><p>Сначала <a href="./">войдите в CRM</a>, потом вернитесь на эту страницу.</p>';throw 0}ME=ss.user.email;return sb.rpc('crm_role').then(ok)}).then(function(role){if(role!=='owner'){document.querySelector('.w').innerHTML='<h1>Рассылка КП</h1><p>Раздел доступен только владельцу.</p>';throw 0}return fn({action:'status'})}).then(function(s){status(s);return load()}).catch(function(e){if(e===0)return;$('#st').textContent=e.message});
+})();
+</script>
+</body>
+</html>
